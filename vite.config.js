@@ -3,10 +3,8 @@ import fs from 'fs';
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import { ViteEjsPlugin } from "vite-plugin-ejs";
-import { codecovVitePlugin } from "@codecov/vite-plugin";
 import vue from '@vitejs/plugin-vue'
 import process from 'process'
-
 /**
  * Before actually building the pages with Vite, we do an intermediate build step using ejs
  * Importing this separately and joining them using ejs
@@ -16,7 +14,6 @@ import process from 'process'
  */
 let assetsSrcPath = 'src_assets/common/assets/web';
 let assetsDstPath = 'build/assets/web';
-
 if (process.env.SUNSHINE_BUILD_HOMEBREW) {
     console.log("Building for homebrew, using default paths")
 }
@@ -39,9 +36,7 @@ else {
         assetsDstPath = path;
     }
 }
-
 let header = fs.readFileSync(resolve(assetsSrcPath, "template_header.html"))
-
 // https://vitejs.dev/config/
 export default defineConfig({
     resolve: {
@@ -53,13 +48,6 @@ export default defineConfig({
     plugins: [
         vue(),
         ViteEjsPlugin({ header }),
-        // The Codecov vite plugin should be after all other plugins
-        codecovVitePlugin({
-            enableBundleAnalysis: true,
-            bundleName: "sunshine",
-            uploadToken: process.env.CODECOV_TOKEN,
-            gitService: "github",
-        }),
     ],
     root: resolve(assetsSrcPath),
     build: {
