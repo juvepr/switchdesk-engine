@@ -13,19 +13,6 @@
     #define TRAY_ICON_PLAYING WEB_DIR "images/sunshine-playing.ico"
     #define TRAY_ICON_PAUSING WEB_DIR "images/sunshine-pausing.ico"
     #define TRAY_ICON_LOCKED WEB_DIR "images/sunshine-locked.ico"
-  #elif defined(__linux__) || defined(linux) || defined(__linux) || defined(__FreeBSD__)
-    #define TRAY_ICON SUNSHINE_TRAY_PREFIX "-tray"
-    #define TRAY_ICON_PLAYING SUNSHINE_TRAY_PREFIX "-playing"
-    #define TRAY_ICON_PAUSING SUNSHINE_TRAY_PREFIX "-pausing"
-    #define TRAY_ICON_LOCKED SUNSHINE_TRAY_PREFIX "-locked"
-  #elif defined(__APPLE__) || defined(__MACH__)
-    #define TRAY_ICON WEB_DIR "images/logo-sunshine-16.png"
-    #define TRAY_ICON_PLAYING WEB_DIR "images/sunshine-playing-16.png"
-    #define TRAY_ICON_PAUSING WEB_DIR "images/sunshine-pausing-16.png"
-    #define TRAY_ICON_LOCKED WEB_DIR "images/sunshine-locked-16.png"
-    #include <CoreFoundation/CoreFoundation.h>
-    #include <dispatch/dispatch.h>
-    #include <unordered_map>
   #endif
 
   // standard includes
@@ -129,57 +116,6 @@ namespace system_tray {
     .allIconPaths = {TRAY_ICON, TRAY_ICON_LOCKED, TRAY_ICON_PLAYING, TRAY_ICON_PAUSING},
   };
 
-  const char *GetResourcePath(const char *relativePath) {
-  #ifdef __APPLE__
-    if (!relativePath || !*relativePath) {
-      return nullptr;
-    }
-
-    // Simple cache ensures our string pointers live forever
-    static std::unordered_map<std::string, std::string> g_cache;
-    auto search = g_cache.find(relativePath);
-    if (search != g_cache.end()) {
-      return search->second.c_str();
-    }
-
-    // If we're running from an .app bundle, get the internal Resources dir
-    CFBundleRef bundle = CFBundleGetMainBundle();
-    if (!bundle) {
-      return relativePath;
-    }
-
-    CFURLRef resourcesURL = CFBundleCopyResourcesDirectoryURL(bundle);
-    if (!resourcesURL) {
-      return relativePath;
-    }
-
-    char resourcesPath[PATH_MAX];
-    bool ok = CFURLGetFileSystemRepresentation(
-      resourcesURL,
-      true,
-      reinterpret_cast<UInt8 *>(resourcesPath),
-      sizeof(resourcesPath)
-    );
-    CFRelease(resourcesURL);
-    if (!ok) {
-      return relativePath;
-    }
-
-    std::string full;
-    if (relativePath && relativePath[0] == '/') {
-      full = relativePath;
-    } else {
-      full = std::string(resourcesPath) + "/" + relativePath;
-    }
-
-    BOOST_LOG(debug) << "System Tray: using " << full << " for icon path";
-
-    auto [it, inserted] = g_cache.emplace(relativePath, std::move(full));
-    return it->second.c_str();
-  #else
-    return relativePath;
-  #endif
-  }
 
   int init_tray() {
   #ifdef _WIN32
@@ -244,15 +180,6 @@ namespace system_tray {
     }
   #endif
 
-  #ifdef __APPLE__
-    // if these icon paths are relative, resolve to internal .app Resources path
-    tray.allIconPaths[0] = GetResourcePath(TRAY_ICON);
-    tray.allIconPaths[1] = GetResourcePath(TRAY_ICON_LOCKED);
-    tray.allIconPaths[2] = GetResourcePath(TRAY_ICON_PLAYING);
-    tray.allIconPaths[3] = GetResourcePath(TRAY_ICON_PAUSING);
-
-    tray.icon = tray.allIconPaths[0];
-  #endif
 
     if (tray_init(&tray) < 0) {
       BOOST_LOG(warning) << "Failed to create system tray"sv;

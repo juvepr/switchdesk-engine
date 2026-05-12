@@ -41,15 +41,5 @@ else()
 endif()
 include("${CMAKE_MODULE_PATH}/dependencies/FindOpus.cmake")
 
-# platform specific dependencies
-if(WIN32)
-    include("${CMAKE_MODULE_PATH}/dependencies/windows.cmake")
-elseif(UNIX)
-    include("${CMAKE_MODULE_PATH}/dependencies/unix.cmake")
-
-    if(APPLE)
-        include("${CMAKE_MODULE_PATH}/dependencies/macos.cmake")
-    else()
-        include("${CMAKE_MODULE_PATH}/dependencies/linux.cmake")
-    endif()
-endif()
+# Windows dependencies
+include("${CMAKE_MODULE_PATH}/dependencies/windows.cmake")
