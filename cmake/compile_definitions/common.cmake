@@ -40,18 +40,8 @@ if(NOT SUNSHINE_ASSETS_DIR)
     set(SUNSHINE_ASSETS_DIR "assets")
 endif()
 
-# platform specific compile definitions
-if(WIN32)
-    include(${CMAKE_MODULE_PATH}/compile_definitions/windows.cmake)
-elseif(UNIX)
-    include(${CMAKE_MODULE_PATH}/compile_definitions/unix.cmake)
-
-    if(APPLE)
-        include(${CMAKE_MODULE_PATH}/compile_definitions/macos.cmake)
-    else()
-        include(${CMAKE_MODULE_PATH}/compile_definitions/linux.cmake)
-    endif()
-endif()
+# Windows compile definitions
+include(${CMAKE_MODULE_PATH}/compile_definitions/windows.cmake)
 
 include_directories(BEFORE SYSTEM "${CMAKE_SOURCE_DIR}/third-party/nv-codec-headers/include")
 file(GLOB NVENC_SOURCES CONFIGURE_DEPENDS "src/nvenc/*.cpp" "src/nvenc/*.h")
