@@ -56,3 +56,9 @@ package-lock.json
 # Python
 *.pyc
 venv/
+
+
+# SwitchDesk one-shot edit scripts (see decisions.md in juvepr/switchdesk)
+/cut-*.py
+/step*-cut-*.py
+/step*-fix-*.py
