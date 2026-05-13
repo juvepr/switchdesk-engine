@@ -1021,23 +1021,7 @@ namespace platf {
       }
     }
 
-    if (config::video.capture == "wgc" || config::video.capture.empty()) {
-      if (hwdevice_type == mem_type_e::dxgi) {
-        auto disp = std::make_shared<dxgi::display_wgc_vram_t>();
-
-        if (!disp->init(config, display_name)) {
-          return disp;
-        }
-      } else if (hwdevice_type == mem_type_e::system) {
-        auto disp = std::make_shared<dxgi::display_wgc_ram_t>();
-
-        if (!disp->init(config, display_name)) {
-          return disp;
-        }
-      }
-    }
-
-    // ddx and wgc failed
+    // ddx failed
     return nullptr;
   }
 
