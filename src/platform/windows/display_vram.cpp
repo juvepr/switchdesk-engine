@@ -10,7 +10,6 @@
 #include <DirectXMath.h>
 
 // lib includes
-#include <AMF/core/Factory.h>
 #include <boost/algorithm/string/predicate.hpp>
 
 // local includes
@@ -1669,81 +1668,15 @@ namespace platf::dxgi {
     DXGI_ADAPTER_DESC adapter_desc;
     adapter->GetDesc(&adapter_desc);
 
-    if (adapter_desc.VendorId == 0x1002) {  // AMD
-      // If it's not an AMF encoder, it's not compatible with an AMD GPU
-      if (!boost::algorithm::ends_with(name, "_amf")) {
-        return false;
-      }
+    // SwitchDesk requires NVIDIA Turing or newer (NVENC-only). Reject
+    // non-NVIDIA adapters and non-NVENC encoder names.
+    if (adapter_desc.VendorId != 0x10de) {
+      BOOST_LOG(error) << "SwitchDesk requires an NVIDIA GPU (got VendorId 0x"sv << util::hex(adapter_desc.VendorId).to_string_view() << ")"sv;
+      return false;
+    }
 
-      // Perform AMF version checks if we're using an AMD GPU. This check is placed in display_vram_t
-      // to avoid hitting the display_ram_t path which uses software encoding and doesn't touch AMF.
-      HMODULE amfrt = LoadLibraryW(AMF_DLL_NAME);
-      if (amfrt) {
-        auto unload_amfrt = util::fail_guard([amfrt]() {
-          FreeLibrary(amfrt);
-        });
-
-        auto fnAMFQueryVersion = (AMFQueryVersion_Fn) GetProcAddress(amfrt, AMF_QUERY_VERSION_FUNCTION_NAME);
-        if (fnAMFQueryVersion) {
-          amf_uint64 version;
-          auto result = fnAMFQueryVersion(&version);
-          if (result == AMF_OK) {
-            if (config.videoFormat == 2 && version < AMF_MAKE_FULL_VERSION(1, 4, 30, 0)) {
-              // AMF 1.4.30 adds ultra low latency mode for AV1. Don't use AV1 on earlier versions.
-              // This corresponds to driver version 23.5.2 (23.10.01.45) or newer.
-              BOOST_LOG(warning) << "AV1 encoding is disabled on AMF version "sv
-                                 << AMF_GET_MAJOR_VERSION(version) << '.'
-                                 << AMF_GET_MINOR_VERSION(version) << '.'
-                                 << AMF_GET_SUBMINOR_VERSION(version) << '.'
-                                 << AMF_GET_BUILD_VERSION(version);
-              BOOST_LOG(warning) << "If your AMD GPU supports AV1 encoding, update your graphics drivers!"sv;
-              return false;
-            } else if (config.dynamicRange && version < AMF_MAKE_FULL_VERSION(1, 4, 23, 0)) {
-              // Older versions of the AMD AMF runtime can crash when fed P010 surfaces.
-              // Fail if AMF version is below 1.4.23 where HEVC Main10 encoding was introduced.
-              // AMF 1.4.23 corresponds to driver version 21.12.1 (21.40.11.03) or newer.
-              BOOST_LOG(warning) << "HDR encoding is disabled on AMF version "sv
-                                 << AMF_GET_MAJOR_VERSION(version) << '.'
-                                 << AMF_GET_MINOR_VERSION(version) << '.'
-                                 << AMF_GET_SUBMINOR_VERSION(version) << '.'
-                                 << AMF_GET_BUILD_VERSION(version);
-              BOOST_LOG(warning) << "If your AMD GPU supports HEVC Main10 encoding, update your graphics drivers!"sv;
-              return false;
-            }
-          } else {
-            BOOST_LOG(warning) << "AMFQueryVersion() failed: "sv << result;
-          }
-        } else {
-          BOOST_LOG(warning) << "AMF DLL missing export: "sv << AMF_QUERY_VERSION_FUNCTION_NAME;
-        }
-      } else {
-        BOOST_LOG(warning) << "Detected AMD GPU but AMF failed to load"sv;
-      }
-    } else if (adapter_desc.VendorId == 0x8086) {  // Intel
-      // If it's not a QSV encoder, it's not compatible with an Intel GPU
-      if (!boost::algorithm::ends_with(name, "_qsv")) {
-        return false;
-      }
-      if (config.chromaSamplingType == 1) {
-        if (config.videoFormat == 0 || config.videoFormat == 2) {
-          // QSV doesn't support 4:4:4 in H.264 or AV1
-          return false;
-        }
-        // TODO: Blacklist HEVC 4:4:4 based on adapter model
-      }
-    } else if (adapter_desc.VendorId == 0x10de) {  // Nvidia
-      // If it's not an NVENC encoder, it's not compatible with an Nvidia GPU
-      if (!boost::algorithm::ends_with(name, "_nvenc")) {
-        return false;
-      }
-    } else if (adapter_desc.VendorId == 0x4D4F4351 ||  // Qualcomm (QCOM as MOQC reversed)
-               adapter_desc.VendorId == 0x5143) {  // Qualcomm alternate ID
-      // If it's not a MediaFoundation encoder, it's not compatible with a Qualcomm GPU
-      if (!boost::algorithm::ends_with(name, "_mf")) {
-        return false;
-      }
-    } else {
-      BOOST_LOG(warning) << "Unknown GPU vendor ID: " << util::hex(adapter_desc.VendorId).to_string_view();
+    if (!boost::algorithm::ends_with(name, "_nvenc")) {
+      return false;
     }
 
     return true;
