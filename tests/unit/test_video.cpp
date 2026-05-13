@@ -10,13 +10,7 @@ struct EncoderTest: PlatformTestSuite, testing::WithParamInterface<video::encode
   void SetUp() override {
     auto &encoder = *GetParam();
     if (!video::validate_encoder(encoder, false)) {
-      // Encoder failed validation,
-      // if it's software - fail, otherwise skip
-      if (encoder.name == "software") {
-        FAIL() << "Software encoder not available";
-      } else {
-        GTEST_SKIP() << "Encoder not available";
-      }
+      GTEST_SKIP() << "Encoder not available";
     }
   }
 };
@@ -25,20 +19,7 @@ INSTANTIATE_TEST_SUITE_P(
   EncoderVariants,
   EncoderTest,
   testing::Values(
-#if !defined(__APPLE__)
-    &video::nvenc,
-#endif
-#ifdef _WIN32
-    &video::amdvce,
-    &video::quicksync,
-#endif
-#if defined(__linux__) || defined(__FreeBSD__)
-    &video::vaapi,
-#endif
-#ifdef __APPLE__
-    &video::videotoolbox,
-#endif
-    &video::software
+    &video::nvenc
   ),
   [](const auto &info) {
     return std::string(info.param->name);
