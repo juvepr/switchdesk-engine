@@ -9,11 +9,6 @@
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/hwcontext_d3d11va.h>
-}
-
 // lib includes
 #include <AMF/core/Factory.h>
 #include <boost/algorithm/string/predicate.hpp>
@@ -36,12 +31,6 @@ extern "C" {
 namespace platf {
   using namespace std::literals;
 }
-
-static void free_frame(AVFrame *frame) {
-  av_frame_free(&frame);
-}
-
-using frame_t = util::safe_ptr<AVFrame, free_frame>;
 
 namespace platf::dxgi {
 
@@ -963,96 +952,6 @@ namespace platf::dxgi {
     texture2d_t output_texture;
   };
 
-  class d3d_avcodec_encode_device_t: public avcodec_encode_device_t {
-  public:
-    int init(std::shared_ptr<platf::display_t> display, adapter_t::pointer adapter_p, pix_fmt_e pix_fmt) {
-      int result = base.init(display, adapter_p, pix_fmt);
-      data = base.device.get();
-      return result;
-    }
-
-    int convert(platf::img_t &img_base) override {
-      return base.convert(img_base);
-    }
-
-    void apply_colorspace() override {
-      base.apply_colorspace(colorspace);
-    }
-
-    void init_hwframes(AVHWFramesContext *frames) override {
-      // We may be called with a QSV or D3D11VA context
-      if (frames->device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
-        auto d3d11_frames = (AVD3D11VAFramesContext *) frames->hwctx;
-
-        // The encoder requires textures with D3D11_BIND_RENDER_TARGET set
-        d3d11_frames->BindFlags = D3D11_BIND_RENDER_TARGET;
-        d3d11_frames->MiscFlags = 0;
-      }
-
-      // We require a single texture
-      frames->initial_pool_size = 1;
-    }
-
-    int prepare_to_derive_context(int hw_device_type) override {
-      // QuickSync requires our device to be multithread-protected
-      if (hw_device_type == AV_HWDEVICE_TYPE_QSV) {
-        multithread_t mt;
-
-        auto status = base.device->QueryInterface(IID_ID3D11Multithread, (void **) &mt);
-        if (FAILED(status)) {
-          BOOST_LOG(warning) << "Failed to query ID3D11Multithread interface from device [0x"sv << util::hex(status).to_string_view() << ']';
-          return -1;
-        }
-
-        mt->SetMultithreadProtected(TRUE);
-      }
-
-      return 0;
-    }
-
-    int set_frame(AVFrame *frame, AVBufferRef *hw_frames_ctx) override {
-      this->hwframe.reset(frame);
-      this->frame = frame;
-
-      // Populate this frame with a hardware buffer if one isn't there already
-      if (!frame->buf[0]) {
-        auto err = av_hwframe_get_buffer(hw_frames_ctx, frame, 0);
-        if (err) {
-          char err_str[AV_ERROR_MAX_STRING_SIZE] {0};
-          BOOST_LOG(error) << "Failed to get hwframe buffer: "sv << av_make_error_string(err_str, AV_ERROR_MAX_STRING_SIZE, err);
-          return -1;
-        }
-      }
-
-      // If this is a frame from a derived context, we'll need to map it to D3D11
-      ID3D11Texture2D *frame_texture;
-      if (frame->format != AV_PIX_FMT_D3D11) {
-        frame_t d3d11_frame {av_frame_alloc()};
-
-        d3d11_frame->format = AV_PIX_FMT_D3D11;
-
-        auto err = av_hwframe_map(d3d11_frame.get(), frame, AV_HWFRAME_MAP_WRITE | AV_HWFRAME_MAP_OVERWRITE);
-        if (err) {
-          char err_str[AV_ERROR_MAX_STRING_SIZE] {0};
-          BOOST_LOG(error) << "Failed to map D3D11 frame: "sv << av_make_error_string(err_str, AV_ERROR_MAX_STRING_SIZE, err);
-          return -1;
-        }
-
-        // Get the texture from the mapped frame
-        frame_texture = (ID3D11Texture2D *) d3d11_frame->data[0];
-      } else {
-        // Otherwise, we can just use the texture inside the original frame
-        frame_texture = (ID3D11Texture2D *) frame->data[0];
-      }
-
-      return base.init_output(frame_texture, frame->width, frame->height);
-    }
-
-  private:
-    d3d_base_encode_device base;
-    frame_t hwframe;
-  };
-
   class d3d_nvenc_encode_device_t: public nvenc_encode_device_t {
   public:
     bool init_device(std::shared_ptr<platf::display_t> display, adapter_t::pointer adapter_p, pix_fmt_e pix_fmt) {
@@ -1848,14 +1747,6 @@ namespace platf::dxgi {
     }
 
     return true;
-  }
-
-  std::unique_ptr<avcodec_encode_device_t> display_vram_t::make_avcodec_encode_device(pix_fmt_e pix_fmt) {
-    auto device = std::make_unique<d3d_avcodec_encode_device_t>();
-    if (device->init(shared_from_this(), adapter.get(), pix_fmt) != 0) {
-      return nullptr;
-    }
-    return device;
   }
 
   std::unique_ptr<nvenc_encode_device_t> display_vram_t::make_nvenc_encode_device(pix_fmt_e pix_fmt) {
