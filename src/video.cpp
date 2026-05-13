@@ -146,27 +146,6 @@ namespace video {
     bool force_idr = false;
   };
 
-  struct sync_session_ctx_t {
-    safe::signal_t *join_event;
-    safe::mail_raw_t::event_t<bool> shutdown_event;
-    safe::mail_raw_t::queue_t<packet_t> packets;
-    safe::mail_raw_t::event_t<bool> idr_events;
-    safe::mail_raw_t::event_t<hdr_info_t> hdr_events;
-    safe::mail_raw_t::event_t<input::touch_port_t> touch_port_events;
-
-    config_t config;
-    int frame_nr;
-    void *channel_data;
-  };
-
-  struct sync_session_t {
-    sync_session_ctx_t *ctx;
-    std::unique_ptr<encode_session_t> session;
-  };
-
-  using encode_session_ctx_queue_t = safe::queue_t<sync_session_ctx_t>;
-  using encode_e = platf::capture_e;
-
   struct capture_ctx_t {
     img_event_t images;
     config_t config;
@@ -181,18 +160,11 @@ namespace video {
     sync_util::sync_t<std::weak_ptr<platf::display_t>> display_wp;
   };
 
-  struct capture_thread_sync_ctx_t {
-    encode_session_ctx_queue_t encode_session_ctx_queue {30};
-  };
-
-  int start_capture_sync(capture_thread_sync_ctx_t &ctx);
-  void end_capture_sync(capture_thread_sync_ctx_t &ctx);
   int start_capture_async(capture_thread_async_ctx_t &ctx);
   void end_capture_async(capture_thread_async_ctx_t &ctx);
 
   // Keep a reference counter to ensure the capture thread only runs when other threads have a reference to the capture thread
   auto capture_thread_async = safe::make_shared<capture_thread_async_ctx_t>(start_capture_async, end_capture_async);
-  auto capture_thread_sync = safe::make_shared<capture_thread_sync_ctx_t>(start_capture_sync, end_capture_sync);
 
   encoder_t nvenc {
     "nvenc"sv,
@@ -820,226 +792,6 @@ namespace video {
     return result;
   }
 
-  std::optional<sync_session_t> make_synced_session(platf::display_t *disp, const encoder_t &encoder, platf::img_t &img, sync_session_ctx_t &ctx) {
-    sync_session_t encode_session;
-
-    encode_session.ctx = &ctx;
-
-    auto encode_device = make_encode_device(*disp, encoder, ctx.config);
-    if (!encode_device) {
-      return std::nullopt;
-    }
-
-    // absolute mouse coordinates require that the dimensions of the screen are known
-    ctx.touch_port_events->raise(make_port(disp, ctx.config));
-
-    // Update client with our current HDR display state
-    hdr_info_t hdr_info = std::make_unique<hdr_info_raw_t>(false);
-    if (colorspace_is_hdr(encode_device->colorspace)) {
-      if (disp->get_hdr_metadata(hdr_info->metadata)) {
-        hdr_info->enabled = true;
-      } else {
-        BOOST_LOG(error) << "Couldn't get display hdr metadata when colorspace selection indicates it should have one";
-      }
-    }
-    ctx.hdr_events->raise(std::move(hdr_info));
-
-    auto session = make_encode_session(disp, encoder, ctx.config, img.width, img.height, std::move(encode_device));
-    if (!session) {
-      return std::nullopt;
-    }
-
-    // Load the initial image to prepare for encoding
-    if (session->convert(img)) {
-      BOOST_LOG(error) << "Could not convert initial image"sv;
-      return std::nullopt;
-    }
-
-    encode_session.session = std::move(session);
-
-    return encode_session;
-  }
-
-  encode_e encode_run_sync(
-    std::vector<std::unique_ptr<sync_session_ctx_t>> &synced_session_ctxs,
-    encode_session_ctx_queue_t &encode_session_ctx_queue,
-    std::vector<std::string> &display_names,
-    int &display_p
-  ) {
-    const auto &encoder = *chosen_encoder;
-
-    std::shared_ptr<platf::display_t> disp;
-
-    auto switch_display_event = mail::man->event<int>(mail::switch_display);
-
-    if (synced_session_ctxs.empty()) {
-      auto ctx = encode_session_ctx_queue.pop();
-      if (!ctx) {
-        return encode_e::ok;
-      }
-
-      synced_session_ctxs.emplace_back(std::make_unique<sync_session_ctx_t>(std::move(*ctx)));
-    }
-
-    while (encode_session_ctx_queue.running()) {
-      // Refresh display names since a display removal might have caused the reinitialization
-      refresh_displays(encoder.platform_formats->dev_type, display_names, display_p);
-
-      // Process any pending display switch with the new list of displays
-      if (switch_display_event->peek()) {
-        display_p = std::clamp(*switch_display_event->pop(), 0, (int) display_names.size() - 1);
-      }
-
-      // reset_display() will sleep between retries
-      reset_display(disp, encoder.platform_formats->dev_type, display_names[display_p], synced_session_ctxs.front()->config);
-      if (disp) {
-        break;
-      }
-    }
-
-    if (!disp) {
-      return encode_e::error;
-    }
-
-    auto img = disp->alloc_img();
-    if (!img || disp->dummy_img(img.get())) {
-      return encode_e::error;
-    }
-
-    std::vector<sync_session_t> synced_sessions;
-    for (auto &ctx : synced_session_ctxs) {
-      auto synced_session = make_synced_session(disp.get(), encoder, *img, *ctx);
-      if (!synced_session) {
-        return encode_e::error;
-      }
-
-      synced_sessions.emplace_back(std::move(*synced_session));
-    }
-
-    auto ec = platf::capture_e::ok;
-    while (encode_session_ctx_queue.running()) {
-      auto push_captured_image_callback = [&](std::shared_ptr<platf::img_t> &&img, bool frame_captured) -> bool {
-        while (encode_session_ctx_queue.peek()) {
-          auto encode_session_ctx = encode_session_ctx_queue.pop();
-          if (!encode_session_ctx) {
-            return false;
-          }
-
-          synced_session_ctxs.emplace_back(std::make_unique<sync_session_ctx_t>(std::move(*encode_session_ctx)));
-
-          auto encode_session = make_synced_session(disp.get(), encoder, *img, *synced_session_ctxs.back());
-          if (!encode_session) {
-            ec = platf::capture_e::error;
-            return false;
-          }
-
-          synced_sessions.emplace_back(std::move(*encode_session));
-        }
-
-        KITTY_WHILE_LOOP(auto pos = std::begin(synced_sessions), pos != std::end(synced_sessions), {
-          auto ctx = pos->ctx;
-          if (ctx->shutdown_event->peek()) {
-            // Let waiting thread know it can delete shutdown_event
-            ctx->join_event->raise(true);
-
-            pos = synced_sessions.erase(pos);
-            synced_session_ctxs.erase(std::find_if(std::begin(synced_session_ctxs), std::end(synced_session_ctxs), [&ctx_p = ctx](auto &ctx) {
-              return ctx.get() == ctx_p;
-            }));
-
-            if (synced_sessions.empty()) {
-              return false;
-            }
-
-            continue;
-          }
-
-          if (ctx->idr_events->peek()) {
-            pos->session->request_idr_frame();
-            ctx->idr_events->pop();
-          }
-
-          if (frame_captured && pos->session->convert(*img)) {
-            BOOST_LOG(error) << "Could not convert image"sv;
-            ctx->shutdown_event->raise(true);
-
-            continue;
-          }
-
-          std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
-          if (img) {
-            frame_timestamp = img->frame_timestamp;
-          }
-
-          if (encode(ctx->frame_nr++, *pos->session, ctx->packets, ctx->channel_data, frame_timestamp)) {
-            BOOST_LOG(error) << "Could not encode video packet"sv;
-            ctx->shutdown_event->raise(true);
-
-            continue;
-          }
-
-          pos->session->request_normal_frame();
-
-          ++pos;
-        })
-
-        if (switch_display_event->peek()) {
-          ec = platf::capture_e::reinit;
-          return false;
-        }
-
-        return true;
-      };
-
-      auto pull_free_image_callback = [&img](std::shared_ptr<platf::img_t> &img_out) -> bool {
-        img_out = img;
-        img_out->frame_timestamp.reset();
-        return true;
-      };
-
-      auto status = disp->capture(push_captured_image_callback, pull_free_image_callback, &display_cursor);
-      switch (status) {
-        case platf::capture_e::reinit:
-        case platf::capture_e::error:
-        case platf::capture_e::ok:
-        case platf::capture_e::timeout:
-        case platf::capture_e::interrupted:
-          return ec != platf::capture_e::ok ? ec : status;
-      }
-    }
-
-    return encode_e::ok;
-  }
-
-  void captureThreadSync() {
-    auto ref = capture_thread_sync.ref();
-
-    std::vector<std::unique_ptr<sync_session_ctx_t>> synced_session_ctxs;
-
-    auto &ctx = ref->encode_session_ctx_queue;
-    auto lg = util::fail_guard([&]() {
-      ctx.stop();
-
-      for (auto &ctx : synced_session_ctxs) {
-        ctx->shutdown_event->raise(true);
-        ctx->join_event->raise(true);
-      }
-
-      for (auto &ctx : ctx.unsafe()) {
-        ctx.shutdown_event->raise(true);
-        ctx.join_event->raise(true);
-      }
-    });
-
-    // Encoding and capture takes place on this thread
-    platf::set_thread_name("video::capture_sync");
-    platf::adjust_thread_priority(platf::thread_priority_e::high);
-
-    std::vector<std::string> display_names;
-    int display_p = -1;
-    while (encode_run_sync(synced_session_ctxs, ctx, display_names, display_p) == encode_e::reinit) {}
-  }
-
   void capture_async(
     safe::mail_t mail,
     config_t &config,
@@ -1132,26 +884,7 @@ namespace video {
     auto idr_events = mail->event<bool>(mail::idr);
 
     idr_events->raise(true);
-    if (chosen_encoder->flags & PARALLEL_ENCODING) {
-      capture_async(std::move(mail), config, channel_data);
-    } else {
-      safe::signal_t join_event;
-      auto ref = capture_thread_sync.ref();
-      ref->encode_session_ctx_queue.raise(sync_session_ctx_t {
-        &join_event,
-        mail->event<bool>(mail::shutdown),
-        mail::man->queue<packet_t>(mail::video_packets),
-        std::move(idr_events),
-        mail->event<hdr_info_t>(mail::hdr),
-        mail->event<input::touch_port_t>(mail::touch_port),
-        config,
-        1,
-        channel_data,
-      });
-
-      // Wait for join signal
-      join_event.view();
-    }
+    capture_async(std::move(mail), config, channel_data);
   }
 
   enum validate_flag_e {
@@ -1597,14 +1330,6 @@ namespace video {
     capture_thread_ctx.capture_ctx_queue->stop();
 
     capture_thread_ctx.capture_thread.join();
-  }
-
-  int start_capture_sync(capture_thread_sync_ctx_t &ctx) {
-    std::thread {&captureThreadSync}.detach();
-    return 0;
-  }
-
-  void end_capture_sync(capture_thread_sync_ctx_t &ctx) {
   }
 
   platf::mem_type_e map_base_dev_type(AVHWDeviceType type) {
