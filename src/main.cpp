@@ -9,7 +9,6 @@
 #include <fstream>
 #include <iostream>
 
-
 // local includes
 #include "confighttp.h"
 #include "display_device.h"
@@ -332,10 +331,6 @@ int main(int argc, char *argv[]) {
 
   reed_solomon_init();
   auto input_deinit_guard = input::init();
-
-  if (input::probe_gamepads()) {
-    BOOST_LOG(warning) << "No gamepad input is available"sv;
-  }
 
   if (video::probe_encoders()) {
     BOOST_LOG(error) << "Video failed to find working encoder"sv;
