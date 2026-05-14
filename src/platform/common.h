@@ -70,124 +70,6 @@ namespace nvenc {
 }
 
 namespace platf {
-  // Limited by bits in activeGamepadMask
-  constexpr auto MAX_GAMEPADS = 16;
-
-  constexpr std::uint32_t DPAD_UP = 0x0001;
-  constexpr std::uint32_t DPAD_DOWN = 0x0002;
-  constexpr std::uint32_t DPAD_LEFT = 0x0004;
-  constexpr std::uint32_t DPAD_RIGHT = 0x0008;
-  constexpr std::uint32_t START = 0x0010;
-  constexpr std::uint32_t BACK = 0x0020;
-  constexpr std::uint32_t LEFT_STICK = 0x0040;
-  constexpr std::uint32_t RIGHT_STICK = 0x0080;
-  constexpr std::uint32_t LEFT_BUTTON = 0x0100;
-  constexpr std::uint32_t RIGHT_BUTTON = 0x0200;
-  constexpr std::uint32_t HOME = 0x0400;
-  constexpr std::uint32_t A = 0x1000;
-  constexpr std::uint32_t B = 0x2000;
-  constexpr std::uint32_t X = 0x4000;
-  constexpr std::uint32_t Y = 0x8000;
-  constexpr std::uint32_t PADDLE1 = 0x010000;
-  constexpr std::uint32_t PADDLE2 = 0x020000;
-  constexpr std::uint32_t PADDLE3 = 0x040000;
-  constexpr std::uint32_t PADDLE4 = 0x080000;
-  constexpr std::uint32_t TOUCHPAD_BUTTON = 0x100000;
-  constexpr std::uint32_t MISC_BUTTON = 0x200000;
-
-  struct supported_gamepad_t {
-    std::string name;
-    bool is_enabled;
-    std::string reason_disabled;
-  };
-
-  enum class gamepad_feedback_e {
-    rumble,  ///< Rumble
-    rumble_triggers,  ///< Rumble triggers
-    set_motion_event_state,  ///< Set motion event state
-    set_rgb_led,  ///< Set RGB LED
-    set_adaptive_triggers,  ///< Set adaptive triggers
-  };
-
-  struct gamepad_feedback_msg_t {
-    static gamepad_feedback_msg_t make_rumble(std::uint16_t id, std::uint16_t lowfreq, std::uint16_t highfreq) {
-      gamepad_feedback_msg_t msg;
-      msg.type = gamepad_feedback_e::rumble;
-      msg.id = id;
-      msg.data.rumble = {lowfreq, highfreq};
-      return msg;
-    }
-
-    static gamepad_feedback_msg_t make_rumble_triggers(std::uint16_t id, std::uint16_t left, std::uint16_t right) {
-      gamepad_feedback_msg_t msg;
-      msg.type = gamepad_feedback_e::rumble_triggers;
-      msg.id = id;
-      msg.data.rumble_triggers = {left, right};
-      return msg;
-    }
-
-    static gamepad_feedback_msg_t make_motion_event_state(std::uint16_t id, std::uint8_t motion_type, std::uint16_t report_rate) {
-      gamepad_feedback_msg_t msg;
-      msg.type = gamepad_feedback_e::set_motion_event_state;
-      msg.id = id;
-      msg.data.motion_event_state.motion_type = motion_type;
-      msg.data.motion_event_state.report_rate = report_rate;
-      return msg;
-    }
-
-    static gamepad_feedback_msg_t make_rgb_led(std::uint16_t id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-      gamepad_feedback_msg_t msg;
-      msg.type = gamepad_feedback_e::set_rgb_led;
-      msg.id = id;
-      msg.data.rgb_led = {r, g, b};
-      return msg;
-    }
-
-    static gamepad_feedback_msg_t make_adaptive_triggers(std::uint16_t id, uint8_t event_flags, uint8_t type_left, uint8_t type_right, const std::array<uint8_t, 10> &left, const std::array<uint8_t, 10> &right) {
-      gamepad_feedback_msg_t msg;
-      msg.type = gamepad_feedback_e::set_adaptive_triggers;
-      msg.id = id;
-      msg.data.adaptive_triggers = {.event_flags = event_flags, .type_left = type_left, .type_right = type_right, .left = left, .right = right};
-      return msg;
-    }
-
-    gamepad_feedback_e type;
-    std::uint16_t id;
-
-    union {
-      struct {
-        std::uint16_t lowfreq;
-        std::uint16_t highfreq;
-      } rumble;
-
-      struct {
-        std::uint16_t left_trigger;
-        std::uint16_t right_trigger;
-      } rumble_triggers;
-
-      struct {
-        std::uint16_t report_rate;
-        std::uint8_t motion_type;
-      } motion_event_state;
-
-      struct {
-        std::uint8_t r;
-        std::uint8_t g;
-        std::uint8_t b;
-      } rgb_led;
-
-      struct {
-        uint16_t controllerNumber;
-        uint8_t event_flags;
-        uint8_t type_left;
-        uint8_t type_right;
-        std::array<uint8_t, 10> left;
-        std::array<uint8_t, 10> right;
-      } adaptive_triggers;
-    } data;
-  };
-
-  using feedback_queue_t = safe::mail_raw_t::queue_t<gamepad_feedback_msg_t>;
 
   namespace speaker {
     enum speaker_e {
@@ -284,83 +166,6 @@ namespace platf {
     constexpr caps_t pen_touch = 0x01;  // Pen and touch events
     constexpr caps_t controller_touch = 0x02;  // Controller touch events
   };  // namespace platform_caps
-
-  struct gamepad_state_t {
-    std::uint32_t buttonFlags;
-    std::uint8_t lt;
-    std::uint8_t rt;
-    std::int16_t lsX;
-    std::int16_t lsY;
-    std::int16_t rsX;
-    std::int16_t rsY;
-  };
-
-  struct gamepad_id_t {
-    // The global index is used when looking up gamepads in the platform's
-    // gamepad array. It identifies gamepads uniquely among all clients.
-    int globalIndex;
-
-    // The client-relative index is the controller number as reported by the
-    // client. It must be used when communicating back to the client via
-    // the input feedback queue.
-    std::uint8_t clientRelativeIndex;
-  };
-
-  struct gamepad_arrival_t {
-    std::uint8_t type;
-    std::uint16_t capabilities;
-    std::uint32_t supportedButtons;
-  };
-
-  struct gamepad_touch_t {
-    gamepad_id_t id;
-    std::uint8_t eventType;
-    std::uint32_t pointerId;
-    float x;
-    float y;
-    float pressure;
-  };
-
-  struct gamepad_motion_t {
-    gamepad_id_t id;
-    std::uint8_t motionType;
-
-    // Accel: m/s^2
-    // Gyro: deg/s
-    float x;
-    float y;
-    float z;
-  };
-
-  struct gamepad_battery_t {
-    gamepad_id_t id;
-    std::uint8_t state;
-    std::uint8_t percentage;
-  };
-
-  struct touch_input_t {
-    std::uint8_t eventType;
-    std::uint16_t rotation;  // Degrees (0..360) or LI_ROT_UNKNOWN
-    std::uint32_t pointerId;
-    float x;
-    float y;
-    float pressureOrDistance;  // Distance for hover and pressure for contact
-    float contactAreaMajor;
-    float contactAreaMinor;
-  };
-
-  struct pen_input_t {
-    std::uint8_t eventType;
-    std::uint8_t toolType;
-    std::uint8_t penButtons;
-    std::uint8_t tilt;  // Degrees (0..90) or LI_TILT_UNKNOWN
-    std::uint16_t rotation;  // Degrees (0..360) or LI_ROT_UNKNOWN
-    float x;
-    float y;
-    float pressureOrDistance;  // Distance for hover and pressure for contact
-    float contactAreaMajor;
-    float contactAreaMinor;
-  };
 
   class deinit_t {
   public:
@@ -773,65 +578,7 @@ namespace platf {
   void scroll(input_t &input, int distance);
   void hscroll(input_t &input, int distance);
   void keyboard_update(input_t &input, uint16_t modcode, bool release, uint8_t flags);
-  void gamepad_update(input_t &input, int nr, const gamepad_state_t &gamepad_state);
   void unicode(input_t &input, char *utf8, int size);
-
-  typedef deinit_t client_input_t;
-
-  /**
-   * @brief Allocate a context to store per-client input data.
-   * @param input The global input context.
-   * @return A unique pointer to a per-client input data context.
-   */
-  std::unique_ptr<client_input_t> allocate_client_input_context(input_t &input);
-
-  /**
-   * @brief Send a touch event to the OS.
-   * @param input The client-specific input context.
-   * @param touch_port The current viewport for translating to screen coordinates.
-   * @param touch The touch event.
-   */
-  void touch_update(client_input_t *input, const touch_port_t &touch_port, const touch_input_t &touch);
-
-  /**
-   * @brief Send a pen event to the OS.
-   * @param input The client-specific input context.
-   * @param touch_port The current viewport for translating to screen coordinates.
-   * @param pen The pen event.
-   */
-  void pen_update(client_input_t *input, const touch_port_t &touch_port, const pen_input_t &pen);
-
-  /**
-   * @brief Send a gamepad touch event to the OS.
-   * @param input The global input context.
-   * @param touch The touch event.
-   */
-  void gamepad_touch(input_t &input, const gamepad_touch_t &touch);
-
-  /**
-   * @brief Send a gamepad motion event to the OS.
-   * @param input The global input context.
-   * @param motion The motion event.
-   */
-  void gamepad_motion(input_t &input, const gamepad_motion_t &motion);
-
-  /**
-   * @brief Send a gamepad battery event to the OS.
-   * @param input The global input context.
-   * @param battery The battery event.
-   */
-  void gamepad_battery(input_t &input, const gamepad_battery_t &battery);
-
-  /**
-   * @brief Create a new virtual gamepad.
-   * @param input The global input context.
-   * @param id The gamepad ID.
-   * @param metadata Controller metadata from client (empty if none provided).
-   * @param feedback_queue The queue for posting messages back to the client.
-   * @return 0 on success.
-   */
-  int alloc_gamepad(input_t &input, const gamepad_id_t &id, const gamepad_arrival_t &metadata, feedback_queue_t feedback_queue);
-  void free_gamepad(input_t &input, int nr);
 
   /**
    * @brief Get the supported platform capabilities to advertise to the client.
@@ -862,14 +609,6 @@ namespace platf {
    * @return Resolved render device path (may be empty on non-Linux platforms).
    */
   std::string resolve_render_device();
-
-  /**
-   * @brief Gets the supported gamepads for this platform backend.
-   * @details This may be called prior to `platf::input()`!
-   * @param input Pointer to the platform's `input_t` or `nullptr`.
-   * @return Vector of gamepad options and status.
-   */
-  std::vector<supported_gamepad_t> &supported_gamepads(input_t *input);
 
   struct high_precision_timer: private boost::noncopyable {
     virtual ~high_precision_timer() = default;

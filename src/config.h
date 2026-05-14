@@ -197,24 +197,15 @@ namespace config {
   struct input_t {
     std::unordered_map<int, int> keybindings;
 
-    std::chrono::milliseconds back_button_timeout;
     std::chrono::milliseconds key_repeat_delay;
     std::chrono::duration<double> key_repeat_period;
 
-    std::string gamepad;
-    bool ds4_back_as_touchpad_click;
-    bool motion_as_ds4;
-    bool touchpad_as_ds4;
-    bool ds5_inputtino_randomize_mac;
-
     bool keyboard;
     bool mouse;
-    bool controller;
 
     bool always_send_scancodes;
 
     bool high_resolution_scrolling;
-    bool native_pen_touch;
   };
 
   namespace flag {
