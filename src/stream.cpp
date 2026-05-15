@@ -30,7 +30,6 @@ extern "C" {
 #include "process.h"
 #include "stream.h"
 #include "sync.h"
-#include "system_tray.h"
 #include "thread_safe.h"
 #include "utility.h"
 
@@ -1772,11 +1771,7 @@ namespace stream {
       // If this is the last session, invoke the platform callbacks
       if (--running_sessions == 0) {
         bool revert_display_config {config::video.dd.config_revert_on_disconnect};
-        if (proc::proc.running()) {
-#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-          system_tray::update_tray_pausing(proc::proc.get_last_run_app_name());
-#endif
-        } else {
+        if (!proc::proc.running()) {
           // We have no app running and also no clients anymore.
           revert_display_config = true;
         }
@@ -1825,9 +1820,6 @@ namespace stream {
       // If this is the first session, invoke the platform callbacks
       if (++running_sessions == 1) {
         platf::streaming_will_start();
-#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-        system_tray::update_tray_playing(proc::proc.get_last_run_app_name());
-#endif
       }
 
       return 0;

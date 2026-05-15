@@ -19,7 +19,6 @@
 #include "main.h"
 #include "nvhttp.h"
 #include "process.h"
-#include "system_tray.h"
 #include "upnp.h"
 #include "video.h"
 
@@ -89,31 +88,9 @@ WINAPI BOOL ConsoleCtrlHandler(DWORD type) {
 }
 #endif
 
-#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-constexpr bool tray_is_enabled = true;
-#else
-constexpr bool tray_is_enabled = false;
-#endif
-
 void mainThreadLoop(const std::shared_ptr<safe::event_t<bool>> &shutdown_event) {
-  bool run_loop = false;
-
-  // Conditions that would require the main thread event loop
-#ifndef _WIN32
-  run_loop = tray_is_enabled && config::sunshine.system_tray;  // On Windows, tray runs in separate thread, so no main loop needed for tray
-#endif
-
-  if (!run_loop) {
-    BOOST_LOG(info) << "No main thread features enabled, skipping event loop"sv;
-    // Wait for shutdown
-    shutdown_event->view();
-    return;
-  }
-
-  // Main thread event loop
-  BOOST_LOG(info) << "Starting main loop"sv;
-  while (system_tray::process_tray_events() == 0);
-  BOOST_LOG(info) << "Main loop has exited"sv;
+  // No main thread features enabled, wait for shutdown
+  shutdown_event->view();
 }
 
 int main(int argc, char *argv[]) {
@@ -287,7 +264,6 @@ int main(int argc, char *argv[]) {
 
     // Break out of the main loop
     shutdown_event->raise(true);
-    system_tray::end_tray();
 
     display_device_deinit_guard = nullptr;
   });
@@ -304,7 +280,6 @@ int main(int argc, char *argv[]) {
 
     // Break out of the main loop
     shutdown_event->raise(true);
-    system_tray::end_tray();
 
     display_device_deinit_guard = nullptr;
   });
@@ -373,20 +348,6 @@ int main(int argc, char *argv[]) {
     BOOST_LOG(fatal) << "Disable GameStream on the SHIELD tab in GeForce Experience or change the Port setting on the Advanced tab in the Sunshine Web UI."sv;
   }
 #endif
-
-  if (tray_is_enabled && config::sunshine.system_tray) {
-    BOOST_LOG(info) << "Starting system tray"sv;
-#ifdef _WIN32
-    // TODO: Windows has a weird bug where when running as a service and on the first Windows boot,
-    // the tray icon would not appear even though Sunshine is running correctly otherwise.
-    // Restarting the service would allow the icon to appear normally.
-    // For now we will keep the Windows tray icon on a separate thread.
-    // Ideally, we would run the system tray on the main thread for all platforms.
-    system_tray::init_tray_threaded();
-#else
-    system_tray::init_tray();
-#endif
-  }
 
   mainThreadLoop(shutdown_event);
 
