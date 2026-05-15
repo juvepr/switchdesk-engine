@@ -584,7 +584,6 @@ namespace config {
     "ipv4",  // Address family
     {},  // Bind address
     platf::appdata().string() + "/sunshine.log",  // log file
-    false,  // notify_pre_releases
     {},  // prep commands
   };
 
@@ -1271,8 +1270,6 @@ namespace config {
     bool_f(vars, "always_send_scancodes", input.always_send_scancodes);
 
     bool_f(vars, "high_resolution_scrolling", input.high_resolution_scrolling);
-
-    bool_f(vars, "notify_pre_releases", sunshine.notify_pre_releases);
 
     int port = sunshine.port;
     int_between_f(vars, "port"s, port, {1024 + nvhttp::PORT_HTTPS, 65535 - rtsp_stream::RTSP_SETUP_PORT});
