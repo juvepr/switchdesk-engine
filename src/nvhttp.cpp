@@ -31,7 +31,6 @@
 #include "platform/common.h"
 #include "process.h"
 #include "rtsp.h"
-#include "system_tray.h"
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
@@ -594,9 +593,6 @@ namespace nvhttp {
           getservercert(ptr->second, tree, pin);
           return;
         } else {
-#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-          system_tray::update_tray_require_pin();
-#endif
           ptr->second.async_insert_pin.response = std::move(response);
 
           fg.disable();

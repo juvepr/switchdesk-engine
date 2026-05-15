@@ -52,7 +52,6 @@ set(SUNSHINE_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c/src/Rtsp.h"
         "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c/src/RtspParser.c"
         "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c/src/Video.h"
-        "${CMAKE_SOURCE_DIR}/third-party/tray/src/tray.h"
         "${CMAKE_SOURCE_DIR}/src/upnp.cpp"
         "${CMAKE_SOURCE_DIR}/src/upnp.h"
         "${CMAKE_SOURCE_DIR}/src/cbs.cpp"
@@ -98,8 +97,6 @@ set(SUNSHINE_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/network.cpp"
         "${CMAKE_SOURCE_DIR}/src/network.h"
         "${CMAKE_SOURCE_DIR}/src/move_by_copy.h"
-        "${CMAKE_SOURCE_DIR}/src/system_tray.cpp"
-        "${CMAKE_SOURCE_DIR}/src/system_tray.h"
         "${CMAKE_SOURCE_DIR}/src/task_pool.h"
         "${CMAKE_SOURCE_DIR}/src/thread_pool.h"
         "${CMAKE_SOURCE_DIR}/src/thread_safe.h"
@@ -115,8 +112,6 @@ if(NOT SUNSHINE_ASSETS_DIR_DEF)
     set(SUNSHINE_ASSETS_DIR_DEF "${SUNSHINE_ASSETS_DIR}")
 endif()
 list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_ASSETS_DIR="${SUNSHINE_ASSETS_DIR_DEF}")
-
-list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_TRAY=${SUNSHINE_TRAY})
 
 # Publisher metadata
 list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_PUBLISHER_NAME="${SUNSHINE_PUBLISHER_NAME}")
