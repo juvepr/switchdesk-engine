@@ -45,17 +45,6 @@ namespace video {
     int enableIntraRefresh;  // 0 - disabled, 1 - enabled
   };
 
-  platf::mem_type_e map_base_dev_type(AVHWDeviceType type);
-  platf::pix_fmt_e map_pix_fmt(AVPixelFormat fmt);
-
-  void free_ctx(AVCodecContext *ctx);
-  void free_frame(AVFrame *frame);
-  void free_buffer(AVBufferRef *ref);
-
-  using avcodec_ctx_t = util::safe_ptr<AVCodecContext, free_ctx>;
-  using avcodec_frame_t = util::safe_ptr<AVFrame, free_frame>;
-  using avcodec_buffer_t = util::safe_ptr<AVBufferRef, free_buffer>;
-  using sws_t = util::safe_ptr<SwsContext, sws_freeContext>;
   using img_event_t = std::shared_ptr<safe::event_t<std::shared_ptr<platf::img_t>>>;
 
   struct encoder_platform_formats_t {
