@@ -67,45 +67,6 @@ namespace video {
     platf::pix_fmt_e pix_fmt_yuv444_10bit;
   };
 
-  struct encoder_platform_formats_avcodec: encoder_platform_formats_t {
-    using init_buffer_function_t = std::function<util::Either<avcodec_buffer_t, int>(platf::avcodec_encode_device_t *)>;
-
-    encoder_platform_formats_avcodec(
-      const AVHWDeviceType &avcodec_base_dev_type,
-      const AVHWDeviceType &avcodec_derived_dev_type,
-      const AVPixelFormat &avcodec_dev_pix_fmt,
-      const AVPixelFormat &avcodec_pix_fmt_8bit,
-      const AVPixelFormat &avcodec_pix_fmt_10bit,
-      const AVPixelFormat &avcodec_pix_fmt_yuv444_8bit,
-      const AVPixelFormat &avcodec_pix_fmt_yuv444_10bit,
-      const init_buffer_function_t &init_avcodec_hardware_input_buffer_function
-    ):
-        avcodec_base_dev_type {avcodec_base_dev_type},
-        avcodec_derived_dev_type {avcodec_derived_dev_type},
-        avcodec_dev_pix_fmt {avcodec_dev_pix_fmt},
-        avcodec_pix_fmt_8bit {avcodec_pix_fmt_8bit},
-        avcodec_pix_fmt_10bit {avcodec_pix_fmt_10bit},
-        avcodec_pix_fmt_yuv444_8bit {avcodec_pix_fmt_yuv444_8bit},
-        avcodec_pix_fmt_yuv444_10bit {avcodec_pix_fmt_yuv444_10bit},
-        init_avcodec_hardware_input_buffer {init_avcodec_hardware_input_buffer_function} {
-      dev_type = map_base_dev_type(avcodec_base_dev_type);
-      pix_fmt_8bit = map_pix_fmt(avcodec_pix_fmt_8bit);
-      pix_fmt_10bit = map_pix_fmt(avcodec_pix_fmt_10bit);
-      pix_fmt_yuv444_8bit = map_pix_fmt(avcodec_pix_fmt_yuv444_8bit);
-      pix_fmt_yuv444_10bit = map_pix_fmt(avcodec_pix_fmt_yuv444_10bit);
-    }
-
-    AVHWDeviceType avcodec_base_dev_type;
-    AVHWDeviceType avcodec_derived_dev_type;
-    AVPixelFormat avcodec_dev_pix_fmt;
-    AVPixelFormat avcodec_pix_fmt_8bit;
-    AVPixelFormat avcodec_pix_fmt_10bit;
-    AVPixelFormat avcodec_pix_fmt_yuv444_8bit;
-    AVPixelFormat avcodec_pix_fmt_yuv444_10bit;
-
-    init_buffer_function_t init_avcodec_hardware_input_buffer;
-  };
-
   struct encoder_platform_formats_nvenc: encoder_platform_formats_t {
     encoder_platform_formats_nvenc(
       const platf::mem_type_e &dev_type,
@@ -338,7 +299,7 @@ namespace video {
     void *channel_data
   );
 
-  bool validate_encoder(encoder_t &encoder, bool expect_failure);
+  bool validate_encoder(encoder_t &encoder);
 
   /**
    * @brief Probe encoders and select the preferred encoder.

@@ -9,7 +9,7 @@
 struct EncoderTest: PlatformTestSuite, testing::WithParamInterface<video::encoder_t *> {
   void SetUp() override {
     auto &encoder = *GetParam();
-    if (!video::validate_encoder(encoder, false)) {
+    if (!video::validate_encoder(encoder)) {
       GTEST_SKIP() << "Encoder not available";
     }
   }
