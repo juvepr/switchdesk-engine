@@ -186,7 +186,6 @@ namespace video {
       }
     };
 
-    codec_t av1;
     codec_t hevc;
     codec_t h264;
 
@@ -199,8 +198,6 @@ namespace video {
           return h264;
         case 1:
           return hevc;
-        case 2:
-          return av1;
       }
     }
 
@@ -229,8 +226,6 @@ namespace video {
   extern encoder_t quicksync;
   extern encoder_t mediafoundation;
 #endif
-
-
 
   struct packet_raw_t {
     virtual ~packet_raw_t() = default;
@@ -334,9 +329,8 @@ namespace video {
   using hdr_info_t = std::unique_ptr<hdr_info_raw_t>;
 
   extern int active_hevc_mode;
-  extern int active_av1_mode;
   extern bool last_encoder_probe_supported_ref_frames_invalidation;
-  extern std::array<bool, 3> last_encoder_probe_supported_yuv444_for_codec;  // 0 - H.264, 1 - HEVC, 2 - AV1
+  extern std::array<bool, 2> last_encoder_probe_supported_yuv444_for_codec;  // 0 - H.264, 1 - HEVC
 
   void capture(
     safe::mail_t mail,

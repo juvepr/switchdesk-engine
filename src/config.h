@@ -31,7 +31,6 @@ namespace config {
     int qp;  // higher == more compression and less quality
 
     int hevc_mode;
-    int av1_mode;
 
     int min_threads;  // Minimum number of threads/slices for CPU encoding
 
