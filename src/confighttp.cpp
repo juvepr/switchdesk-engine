@@ -564,157 +564,6 @@ namespace confighttp {
   }
 
   /**
-   * @brief Get the list of paired clients.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   *
-   * @api_examples{/api/clients/list| GET| null}
-   */
-  void getClients(const resp_https_t &response, const req_https_t &request) {
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    print_req(request);
-
-    const nlohmann::json named_certs = nvhttp::get_all_clients();
-
-    nlohmann::json output_tree;
-    output_tree["named_certs"] = named_certs;
-    output_tree["status"] = true;
-    send_response(response, output_tree);
-  }
-
-  /**
-   * @brief Enable or disable a client.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   * The body for the POST request should be JSON serialized in the following format:
-   * @code{.json}
-   * {
-   *   "uuid": "<uuid>",
-   *   "enabled": true
-   * }
-   * @endcode
-   *
-   * @api_examples{/api/clients/update| POST| {"uuid":"<uuid>","enabled":true}}
-   */
-  void updateClient(resp_https_t response, req_https_t request) {
-    if (!check_content_type(response, request, "application/json")) {
-      return;
-    }
-    if (!authenticate(response, request)) {
-      return;
-    }
-    std::string client_id = get_client_id(request);
-    if (!validate_csrf_token(response, request, client_id)) {
-      return;
-    }
-
-    print_req(request);
-
-    std::stringstream ss;
-    ss << request->content.rdbuf();
-    try {
-      nlohmann::json input_tree = nlohmann::json::parse(ss.str());
-      nlohmann::json output_tree;
-      std::string uuid = input_tree.value("uuid", "");
-      bool enabled = input_tree.value("enabled", true);
-      output_tree["status"] = nvhttp::set_client_enabled(uuid, enabled);
-
-      if (!enabled && output_tree["status"]) {
-        rtsp_stream::terminate_sessions();
-
-        if (rtsp_stream::session_count() == 0 && proc::proc.running() > 0) {
-          proc::proc.terminate();
-        }
-      }
-
-      send_response(response, output_tree);
-    } catch (nlohmann::json::exception &e) {
-      BOOST_LOG(warning) << "Update Client: "sv << e.what();
-      bad_request(response, request, e.what());
-    }
-  }
-
-  /**
-   * @brief Unpair a client.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   * The body for the POST request should be JSON serialized in the following format:
-   * @code{.json}
-   * {
-   *  "uuid": "<uuid>"
-   * }
-   * @endcode
-   *
-   * @api_examples{/api/unpair| POST| {"uuid":"1234"}}
-   */
-  void unpair(const resp_https_t &response, const req_https_t &request) {
-    if (!check_content_type(response, request, "application/json")) {
-      return;
-    }
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    std::string client_id = get_client_id(request);
-    if (!validate_csrf_token(response, request, client_id)) {
-      return;
-    }
-
-    print_req(request);
-
-    std::stringstream ss;
-    ss << request->content.rdbuf();
-
-    try {
-      // TODO: Input Validation
-      nlohmann::json output_tree;
-      const nlohmann::json input_tree = nlohmann::json::parse(ss);
-      const std::string uuid = input_tree.value("uuid", "");
-      const bool removed = nvhttp::unpair_client(uuid);
-      output_tree["status"] = removed;
-
-      if (removed && nvhttp::get_all_clients().empty()) {
-        proc::proc.terminate();
-      }
-
-      send_response(response, output_tree);
-    } catch (std::exception &e) {
-      BOOST_LOG(warning) << "Unpair: "sv << e.what();
-      bad_request(response, request, e.what());
-    }
-  }
-
-  /**
-   * @brief Unpair all clients.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   *
-   * @api_examples{/api/clients/unpair-all| POST| null}
-   */
-  void unpairAll(const resp_https_t &response, const req_https_t &request) {
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    std::string client_id = get_client_id(request);
-    if (!validate_csrf_token(response, request, client_id)) {
-      return;
-    }
-
-    print_req(request);
-
-    nvhttp::erase_all_clients();
-    proc::proc.terminate();
-
-    nlohmann::json output_tree;
-    output_tree["status"] = true;
-    send_response(response, output_tree);
-  }
-
-  /**
    * @brief Get the configuration settings.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -914,57 +763,6 @@ namespace confighttp {
       send_response(response, output_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePassword: "sv << e.what();
-      bad_request(response, request, e.what());
-    }
-  }
-
-  /**
-   * @brief Send a pin code to the host. The pin is generated from the Moonlight client during the pairing process.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   * The body for the post request should be JSON serialized in the following format:
-   * @code{.json}
-   * {
-   *   "pin": "<pin>",
-   *   "name": "Friendly Client Name"
-   * }
-   * @endcode
-   *
-   * @api_examples{/api/pin| POST| {"pin":"1234","name":"My PC"}}
-   */
-  void savePin(const resp_https_t &response, const req_https_t &request) {
-    if (!check_content_type(response, request, "application/json")) {
-      return;
-    }
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    std::string client_id = get_client_id(request);
-    if (!validate_csrf_token(response, request, client_id)) {
-      return;
-    }
-
-    print_req(request);
-
-    std::stringstream ss;
-    ss << request->content.rdbuf();
-    try {
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-      const std::string name = input_tree.value("name", "");
-      const std::string pin = input_tree.value("pin", "");
-
-      int _pin = 0;
-      _pin = std::stoi(pin);
-      if (_pin < 0 || _pin > 9999) {
-        bad_request(response, request, "PIN must be between 0000 and 9999");
-      }
-
-      output_tree["status"] = nvhttp::pin(pin, name);
-      send_response(response, output_tree);
-    } catch (std::exception &e) {
-      BOOST_LOG(warning) << "SavePin: "sv << e.what();
       bad_request(response, request, e.what());
     }
   }
@@ -1236,26 +1034,19 @@ namespace confighttp {
 
     // web pages
     server.resource["^/$"]["GET"] = page_handler("index.html");
-    server.resource["^/clients/?$"]["GET"] = page_handler("clients.html");
     server.resource["^/config/?$"]["GET"] = page_handler("config.html");
     server.resource["^/featured/?$"]["GET"] = page_handler("featured.html");
     server.resource["^/password/?$"]["GET"] = page_handler("password.html");
-    server.resource["^/pin/?$"]["GET"] = page_handler("pin.html");
     server.resource["^/troubleshooting/?$"]["GET"] = page_handler("troubleshooting.html");
     server.resource["^/welcome/?$"]["GET"] = page_handler("welcome.html", false, true);
 
     // rest api
     server.resource["^/api/browse$"]["GET"] = browseDirectory;
-    server.resource["^/api/clients/list$"]["GET"] = getClients;
-    server.resource["^/api/clients/unpair$"]["POST"] = unpair;
-    server.resource["^/api/clients/unpair-all$"]["POST"] = unpairAll;
-    server.resource["^/api/clients/update$"]["POST"] = updateClient;
     server.resource["^/api/config$"]["GET"] = getConfig;
     server.resource["^/api/config$"]["POST"] = saveConfig;
     server.resource["^/api/configLocale$"]["GET"] = getLocale;
     server.resource["^/api/csrf-token$"]["GET"] = getCSRFToken;
     server.resource["^/api/password$"]["POST"] = savePassword;
-    server.resource["^/api/pin$"]["POST"] = savePin;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
     server.resource["^/api/restart$"]["POST"] = restart;
