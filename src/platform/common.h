@@ -310,10 +310,6 @@ namespace platf {
 
     virtual int dummy_img(img_t *img) = 0;
 
-    virtual std::unique_ptr<avcodec_encode_device_t> make_avcodec_encode_device(pix_fmt_e pix_fmt) {
-      return nullptr;
-    }
-
     virtual std::unique_ptr<nvenc_encode_device_t> make_nvenc_encode_device(pix_fmt_e pix_fmt) {
       return nullptr;
     }
