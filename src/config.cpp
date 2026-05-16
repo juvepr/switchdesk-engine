@@ -1224,8 +1224,6 @@ namespace config {
     int_between_f(vars, "wan_encryption_mode", stream.wan_encryption_mode, {0, 2});
 
     path_f(vars, "file_apps", stream.file_apps);
-#ifndef __ANDROID__
-    // TODO: Android can possibly support this
     if (!fs::exists(stream.file_apps.c_str())) {
       fs::copy_file(SUNSHINE_ASSETS_DIR "/apps.json", stream.file_apps);
       fs::permissions(
@@ -1234,7 +1232,6 @@ namespace config {
         fs::perm_options::add
       );
     }
-#endif
 
     int_between_f(vars, "fec_percentage", stream.fec_percentage, {1, 255});
 

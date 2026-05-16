@@ -72,18 +72,6 @@ namespace video {
     }
   }  // namespace
 
-  void free_ctx(AVCodecContext *ctx) {
-    avcodec_free_context(&ctx);
-  }
-
-  void free_frame(AVFrame *frame) {
-    av_frame_free(&frame);
-  }
-
-  void free_buffer(AVBufferRef *ref) {
-    av_buffer_unref(&ref);
-  }
-
   enum flag_e : uint32_t {
     REF_FRAMES_INVALIDATION = 1 << 0,  ///< Support reference frames invalidation
     YUV444_SUPPORT = 1 << 1,  ///< Encoder may support 4:4:4 chroma sampling depending on hardware
@@ -1155,40 +1143,6 @@ namespace video {
     capture_thread_ctx.capture_ctx_queue->stop();
 
     capture_thread_ctx.capture_thread.join();
-  }
-
-  platf::mem_type_e map_base_dev_type(AVHWDeviceType type) {
-    switch (type) {
-      case AV_HWDEVICE_TYPE_D3D11VA:
-        return platf::mem_type_e::dxgi;
-      case AV_HWDEVICE_TYPE_NONE:
-        return platf::mem_type_e::system;
-      default:
-        return platf::mem_type_e::unknown;
-    }
-
-    return platf::mem_type_e::unknown;
-  }
-
-  platf::pix_fmt_e map_pix_fmt(AVPixelFormat fmt) {
-    switch (fmt) {
-      case AV_PIX_FMT_VUYX:
-        return platf::pix_fmt_e::ayuv;
-      case AV_PIX_FMT_XV30:
-        return platf::pix_fmt_e::y410;
-      case AV_PIX_FMT_YUV420P10:
-        return platf::pix_fmt_e::yuv420p10;
-      case AV_PIX_FMT_YUV420P:
-        return platf::pix_fmt_e::yuv420p;
-      case AV_PIX_FMT_NV12:
-        return platf::pix_fmt_e::nv12;
-      case AV_PIX_FMT_P010:
-        return platf::pix_fmt_e::p010;
-      default:
-        return platf::pix_fmt_e::unknown;
-    }
-
-    return platf::pix_fmt_e::unknown;
   }
 
 }  // namespace video
