@@ -248,22 +248,6 @@ namespace platf::dxgi {
   };
 
   /**
-   * Display component for devices that use software encoders.
-   */
-  class display_ram_t: public display_base_t {
-  public:
-    std::shared_ptr<img_t> alloc_img() override;
-    int dummy_img(img_t *img) override;
-    int complete_img(img_t *img, bool dummy) override;
-    std::vector<DXGI_FORMAT> get_supported_capture_formats() override;
-
-    std::unique_ptr<avcodec_encode_device_t> make_avcodec_encode_device(pix_fmt_e pix_fmt) override;
-
-    D3D11_MAPPED_SUBRESOURCE img_info;
-    texture2d_t texture;
-  };
-
-  /**
    * Display component for devices that use hardware encoders.
    */
   class display_vram_t: public display_base_t, public std::enable_shared_from_this<display_vram_t> {
@@ -295,19 +279,6 @@ namespace platf::dxgi {
     capture_e release_frame();
 
     ~duplication_t();
-  };
-
-  /**
-   * Display backend that uses DDAPI with a software encoder.
-   */
-  class display_ddup_ram_t: public display_ram_t {
-  public:
-    int init(const ::video::config_t &config, const std::string &display_name);
-    capture_e snapshot(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, std::chrono::milliseconds timeout, bool cursor_visible) override;
-    capture_e release_snapshot() override;
-
-    duplication_t dup;
-    cursor_t cursor;
   };
 
   /**
