@@ -47,8 +47,13 @@ namespace http {
     bool clean_slate = config::sunshine.flags[config::flag::FRESH_STATE];
     origin_web_ui_allowed = net::from_enum_string(config::nvhttp.origin_web_ui_allowed);
 
+    // Phase 2: load_state() used to populate unique_id from
+    // sunshine_state.json in non-clean-slate mode. With the state file
+    // gone, generate a fresh uuid every boot; serverinfo still
+    // advertises it to clients.
+    unique_id = uuid_util::uuid_t::generate().string();
+
     if (clean_slate) {
-      unique_id = uuid_util::uuid_t::generate().string();
       auto dir = std::filesystem::temp_directory_path() / "Sunshine"sv;
       config::nvhttp.cert = (dir / ("cert-"s + unique_id)).string();
       config::nvhttp.pkey = (dir / ("pkey-"s + unique_id)).string();
