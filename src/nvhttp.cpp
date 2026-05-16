@@ -743,18 +743,6 @@ namespace nvhttp {
         codec_mode_flags |= SCM_HEVC_REXT10_444;
       }
     }
-    if (video::active_av1_mode >= 2) {
-      codec_mode_flags |= SCM_AV1_MAIN8;
-      if (video::last_encoder_probe_supported_yuv444_for_codec[2]) {
-        codec_mode_flags |= SCM_AV1_HIGH8_444;
-      }
-    }
-    if (video::active_av1_mode >= 3) {
-      codec_mode_flags |= SCM_AV1_MAIN10;
-      if (video::last_encoder_probe_supported_yuv444_for_codec[2]) {
-        codec_mode_flags |= SCM_AV1_HIGH10_444;
-      }
-    }
     tree.put("root.ServerCodecModeSupport", codec_mode_flags);
 
     if (!config::nvhttp.external_ip.empty()) {

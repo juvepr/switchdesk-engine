@@ -148,11 +148,6 @@ namespace nvenc {
         init_params.encodeGUID = NV_ENC_CODEC_HEVC_GUID;
         break;
 
-      case 2:
-        // AV1
-        init_params.encodeGUID = NV_ENC_CODEC_AV1_GUID;
-        break;
-
       default:
         BOOST_LOG(error) << "NvEnc: unknown video format " << client_config.videoFormat;
         return false;
@@ -230,8 +225,8 @@ namespace nvenc {
       init_params.frameRateDen = fps.den;
     }
 
-    if (client_config.videoFormat > 0 && get_encoder_cap(NV_ENC_CAPS_NUM_ENCODER_ENGINES) > 1) {
-      // SFE supports HEVC/AV1 if you have more than 1 nvenc block
+    if (client_config.videoFormat == 1 && get_encoder_cap(NV_ENC_CAPS_NUM_ENCODER_ENGINES) > 1) {
+      // SFE supports HEVC if you have more than 1 nvenc block
       using enum nvenc_split_frame_encoding;
       NV_ENC_SPLIT_ENCODE_MODE split_mode;
       if (config.split_frame_encoding == disabled) {
@@ -371,37 +366,6 @@ namespace nvenc {
           }
           break;
         }
-
-      case 2:
-        {
-          // AV1
-          auto &format_config = enc_config.encodeCodecConfig.av1Config;
-          format_config.repeatSeqHdr = 1;
-          format_config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
-          if (buffer_is_yuv444()) {
-            format_config.chromaFormatIDC = 3;
-          }
-          format_config.enableBitstreamPadding = config.insert_filler_data;
-          if (buffer_is_10bit()) {
-            format_config.inputBitDepth = NV_ENC_BIT_DEPTH_10;
-            format_config.outputBitDepth = NV_ENC_BIT_DEPTH_10;
-          }
-          format_config.colorPrimaries = colorspace.primaries;
-          format_config.transferCharacteristics = colorspace.tranfer_function;
-          format_config.matrixCoefficients = colorspace.matrix;
-          format_config.colorRange = colorspace.full_range;
-          format_config.chromaSamplePosition = buffer_is_yuv444() ? 0 : 1;
-          set_ref_frames(format_config.maxNumRefFramesInDPB, format_config.numFwdRefs, 8);
-          set_minqp_if_enabled(config.min_qp_av1);
-
-          if (client_config.slicesPerFrame > 1) {
-            // NVENC only supports slice counts that are powers of two, so we'll pick powers of two
-            // with bias to rows due to hopefully more similar macroblocks with a row vs a column.
-            format_config.numTileRows = std::pow(2, std::ceil(std::log2(client_config.slicesPerFrame) / 2));
-            format_config.numTileColumns = std::pow(2, std::floor(std::log2(client_config.slicesPerFrame) / 2));
-          }
-          break;
-        }
     }
 
     init_params.encodeConfig = &enc_config;
@@ -439,7 +403,6 @@ namespace nvenc {
     {
       auto video_format_string = client_config.videoFormat == 0 ? "H.264 " :
                                  client_config.videoFormat == 1 ? "HEVC " :
-                                 client_config.videoFormat == 2 ? "AV1 " :
                                                                   " ";
       std::string extra;
       if (init_params.enableEncodeAsync) {
@@ -472,7 +435,7 @@ namespace nvenc {
       if (config.insert_filler_data) {
         extra += " filler-data";
       }
-      if (client_config.videoFormat > 0 && get_encoder_cap(NV_ENC_CAPS_NUM_ENCODER_ENGINES) > 1) {
+      if (client_config.videoFormat == 1 && get_encoder_cap(NV_ENC_CAPS_NUM_ENCODER_ENGINES) > 1) {
         if (init_params.splitEncodeMode == NV_ENC_SPLIT_AUTO_MODE) {
           extra += " sfe-auto";
         } else if (init_params.splitEncodeMode == NV_ENC_SPLIT_AUTO_FORCED_MODE) {
