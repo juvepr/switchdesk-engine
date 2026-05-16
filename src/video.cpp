@@ -85,19 +85,9 @@ namespace video {
   }
 
   enum flag_e : uint32_t {
-    DEFAULT = 0,  ///< Default flags
-    PARALLEL_ENCODING = 1 << 1,  ///< Capture and encoding can run concurrently on separate threads
-    H264_ONLY = 1 << 2,  ///< When HEVC is too heavy
-    LIMITED_GOP_SIZE = 1 << 3,  ///< Some encoders don't like it when you have an infinite GOP_SIZE. e.g. VAAPI
-    SINGLE_SLICE_ONLY = 1 << 4,  ///< Never use multiple slices. Older intel iGPU's ruin it for everyone else
-    CBR_WITH_VBR = 1 << 5,  ///< Use a VBR rate control mode to simulate CBR
-    RELAXED_COMPLIANCE = 1 << 6,  ///< Use FF_COMPLIANCE_UNOFFICIAL compliance mode
-    NO_RC_BUF_LIMIT = 1 << 7,  ///< Don't set rc_buffer_size
-    REF_FRAMES_INVALIDATION = 1 << 8,  ///< Support reference frames invalidation
-    ALWAYS_REPROBE = 1 << 9,  ///< This is an encoder of last resort and we want to aggressively probe for a better one
-    YUV444_SUPPORT = 1 << 10,  ///< Encoder may support 4:4:4 chroma sampling depending on hardware
-    ASYNC_TEARDOWN = 1 << 11,  ///< Encoder supports async teardown on a different thread
-    FIXED_GOP_SIZE = 1 << 12,  ///< Use fixed small GOP size (encoder doesn't support on-demand IDR frames)
+    REF_FRAMES_INVALIDATION = 1 << 0,  ///< Support reference frames invalidation
+    YUV444_SUPPORT = 1 << 1,  ///< Encoder may support 4:4:4 chroma sampling depending on hardware
+    ASYNC_TEARDOWN = 1 << 2,  ///< Encoder supports async teardown on a different thread
   };
 
   class nvenc_encode_session_t: public encode_session_t {
@@ -193,11 +183,7 @@ namespace video {
       {},  // Fallback options
       "h264_nvenc"s,
     },
-    PARALLEL_ENCODING | REF_FRAMES_INVALIDATION | YUV444_SUPPORT | ASYNC_TEARDOWN  // flags
-  };
-
-  static const std::vector<encoder_t *> encoders {
-    &nvenc
+    REF_FRAMES_INVALIDATION | YUV444_SUPPORT | ASYNC_TEARDOWN  // flags
   };
 
   static encoder_t *chosen_encoder;
@@ -769,11 +755,7 @@ namespace video {
       BOOST_LOG(info) << "Color range: " << (colorspace.full_range ? "JPEG" : "MPEG");
     }
 
-    if (dynamic_cast<const encoder_platform_formats_avcodec *>(encoder.platform_formats.get())) {
-      result = disp.make_avcodec_encode_device(pix_fmt);
-    } else if (dynamic_cast<const encoder_platform_formats_nvenc *>(encoder.platform_formats.get())) {
-      result = disp.make_nvenc_encode_device(pix_fmt);
-    }
+    result = disp.make_nvenc_encode_device(pix_fmt);
 
     if (result) {
       result->colorspace = colorspace;
@@ -933,7 +915,7 @@ namespace video {
     return flag;
   }
 
-  bool validate_encoder(encoder_t &encoder, bool expect_failure) {
+  bool validate_encoder(encoder_t &encoder) {
     const auto output_name {display_device::map_output_name(config::video.output_name)};
     std::shared_ptr<platf::display_t> disp;
 
@@ -942,7 +924,7 @@ namespace video {
       BOOST_LOG(info) << "Encoder ["sv << encoder.name << "] failed"sv;
     });
 
-    auto test_hevc = active_hevc_mode >= 2 || (active_hevc_mode == 0 && !(encoder.flags & H264_ONLY));
+    auto test_hevc = active_hevc_mode != 1;
 
     encoder.h264.capabilities.set();
     encoder.hevc.capabilities.set();
@@ -962,15 +944,10 @@ namespace video {
       return false;
     }
 
-    // If we're expecting failure, use the autoselect ref config first since that will always succeed
-    // if the encoder is available.
-    auto max_ref_frames_h264 = expect_failure ? -1 : validate_config(disp, encoder, config_max_ref_frames);
+    auto max_ref_frames_h264 = validate_config(disp, encoder, config_max_ref_frames);
     auto autoselect_h264 = max_ref_frames_h264 >= 0 ? max_ref_frames_h264 : validate_config(disp, encoder, config_autoselect);
     if (autoselect_h264 < 0) {
       return false;
-    } else if (expect_failure) {
-      // We expected failure, but actually succeeded. Do the max_ref_frames probe we skipped.
-      max_ref_frames_h264 = validate_config(disp, encoder, config_max_ref_frames);
     }
 
     std::vector<std::pair<validate_flag_e, encoder_t::flag_e>> packet_deficiencies {
@@ -1086,114 +1063,18 @@ namespace video {
       return -1;
     }
 
-    auto encoder_list = encoders;
-
-    // If we already have a good encoder, check to see if another probe is required
-    if (chosen_encoder && !(chosen_encoder->flags & ALWAYS_REPROBE) && !platf::needs_encoder_reenumeration()) {
+    // If we already have a working encoder, only reprobe when the platform asks us to.
+    if (chosen_encoder && !platf::needs_encoder_reenumeration()) {
       return 0;
     }
 
-    // Restart encoder selection
-    auto previous_encoder = chosen_encoder;
     chosen_encoder = nullptr;
     active_hevc_mode = config::video.hevc_mode;
     last_encoder_probe_supported_ref_frames_invalidation = false;
 
-    auto adjust_encoder_constraints = [&](encoder_t *encoder) {
-      // If we can't satisfy both the encoder and codec requirement, prefer the encoder over codec support
-      if (active_hevc_mode == 3 && !encoder->hevc[encoder_t::DYNAMIC_RANGE]) {
-        BOOST_LOG(warning) << "Encoder ["sv << encoder->name << "] does not support HEVC Main10 on this system"sv;
-        active_hevc_mode = 0;
-      } else if (active_hevc_mode == 2 && !encoder->hevc[encoder_t::PASSED]) {
-        BOOST_LOG(warning) << "Encoder ["sv << encoder->name << "] does not support HEVC on this system"sv;
-        active_hevc_mode = 0;
-      }
-    };
-
-    if (!config::video.encoder.empty()) {
-      // If there is a specific encoder specified, use it if it passes validation
-      KITTY_WHILE_LOOP(auto pos = std::begin(encoder_list), pos != std::end(encoder_list), {
-        auto encoder = *pos;
-
-        if (encoder->name == config::video.encoder) {
-          // Remove the encoder from the list entirely if it fails validation
-          if (!validate_encoder(*encoder, previous_encoder && previous_encoder != encoder)) {
-            pos = encoder_list.erase(pos);
-            break;
-          }
-
-          // We will return an encoder here even if it fails one of the codec requirements specified by the user
-          adjust_encoder_constraints(encoder);
-
-          chosen_encoder = encoder;
-          break;
-        }
-
-        pos++;
-      });
-
-      if (chosen_encoder == nullptr) {
-        BOOST_LOG(error) << "Couldn't find any working encoder matching ["sv << config::video.encoder << ']';
-      }
-    }
-
     BOOST_LOG(info) << "// Testing for available encoders, this may generate errors. You can safely ignore those errors. //"sv;
 
-    // If we haven't found an encoder yet, but we want one with specific codec support, search for that now.
-    if (chosen_encoder == nullptr && active_hevc_mode >= 2) {
-      KITTY_WHILE_LOOP(auto pos = std::begin(encoder_list), pos != std::end(encoder_list), {
-        auto encoder = *pos;
-
-        // Remove the encoder from the list entirely if it fails validation
-        if (!validate_encoder(*encoder, previous_encoder && previous_encoder != encoder)) {
-          pos = encoder_list.erase(pos);
-          continue;
-        }
-
-        // Skip it if it doesn't support the specified codec at all
-        if (active_hevc_mode >= 2 && !encoder->hevc[encoder_t::PASSED]) {
-          pos++;
-          continue;
-        }
-
-        // Skip it if it doesn't support HDR on the specified codec
-        if (active_hevc_mode == 3 && !encoder->hevc[encoder_t::DYNAMIC_RANGE]) {
-          pos++;
-          continue;
-        }
-
-        chosen_encoder = encoder;
-        break;
-      });
-
-      if (chosen_encoder == nullptr) {
-        BOOST_LOG(error) << "Couldn't find any working encoder that meets HEVC requirements"sv;
-      }
-    }
-
-    // If no encoder was specified or the specified encoder was unusable, keep trying
-    // the remaining encoders until we find one that passes validation.
-    if (chosen_encoder == nullptr) {
-      KITTY_WHILE_LOOP(auto pos = std::begin(encoder_list), pos != std::end(encoder_list), {
-        auto encoder = *pos;
-
-        // If we've used a previous encoder and it's not this one, we expect this encoder to
-        // fail to validate. It will use a slightly different order of checks to more quickly
-        // eliminate failing encoders.
-        if (!validate_encoder(*encoder, previous_encoder && previous_encoder != encoder)) {
-          pos = encoder_list.erase(pos);
-          continue;
-        }
-
-        // We will return an encoder here even if it fails one of the codec requirements specified by the user
-        adjust_encoder_constraints(encoder);
-
-        chosen_encoder = encoder;
-        break;
-      });
-    }
-
-    if (chosen_encoder == nullptr) {
+    if (!validate_encoder(nvenc)) {
       const auto output_name {display_device::map_output_name(config::video.output_name)};
       BOOST_LOG(fatal) << "Unable to find display or encoder during startup."sv;
       if (!config::video.adapter_name.empty() || !output_name.empty()) {
@@ -1203,6 +1084,17 @@ namespace video {
       }
       return -1;
     }
+
+    // If the user required HEVC but the encoder can't provide it, downgrade and warn.
+    if (active_hevc_mode == 3 && !nvenc.hevc[encoder_t::DYNAMIC_RANGE]) {
+      BOOST_LOG(warning) << "Encoder [nvenc] does not support HEVC Main10 on this system"sv;
+      active_hevc_mode = 0;
+    } else if (active_hevc_mode == 2 && !nvenc.hevc[encoder_t::PASSED]) {
+      BOOST_LOG(warning) << "Encoder [nvenc] does not support HEVC on this system"sv;
+      active_hevc_mode = 0;
+    }
+
+    chosen_encoder = &nvenc;
 
     BOOST_LOG(info);
     BOOST_LOG(info) << "// Ignore any errors mentioned above, they are not relevant. //"sv;
