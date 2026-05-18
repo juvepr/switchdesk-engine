@@ -28,6 +28,7 @@
 #include "logging.h"
 #include "network.h"
 #include "nvhttp.h"
+#include "nvhttp_token.h"
 #include "platform/common.h"
 #include "process.h"
 #include "rtsp.h"
@@ -639,6 +640,15 @@ namespace nvhttp {
     auto pkey = file_handler::read_file(config::nvhttp.pkey.c_str());
     auto cert = file_handler::read_file(config::nvhttp.cert.c_str());
     setup(pkey, cert);
+
+    // Phase 2: load the control plane issuer pubkey for JWT verification.
+    // If cp_pubkey is empty, default to a sibling cp-pubkey.pem next to the
+    // server cert. Fatal failure inside load_issuer_pubkey raises shutdown.
+    std::string cp_pubkey_path = config::nvhttp.cp_pubkey;
+    if (cp_pubkey_path.empty()) {
+      cp_pubkey_path = file_handler::get_parent_directory(config::nvhttp.cert) + "/cp-pubkey.pem";
+    }
+    nvhttp::token::load_issuer_pubkey(cp_pubkey_path);
 
     // resume doesn't always get the parameter "localAudioPlayMode"
     // launch will store it in host_audio

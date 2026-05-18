@@ -175,6 +175,11 @@ namespace config {
     std::string file_state;
 
     std::string external_ip;
+
+    // Phase 2: control plane JWT verification
+    std::string cp_pubkey;  ///< Path to control plane issuer pubkey (PEM-wrapped X.509)
+    std::string cp_issuer;  ///< Expected JWT iss claim
+    std::string node_id;    ///< Expected JWT aud claim
   };
 
   struct input_t {
