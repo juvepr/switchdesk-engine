@@ -261,22 +261,41 @@ namespace nvhttp {
     response->close_connection_after_response = true;
   }
 
-  // Phase 2 stub: pairing is now handled by the control plane. /pair
-  // remains as a Moonlight-protocol-compatibility endpoint, returning
-  // paired=1 unconditionally so any client paths that probe the
-  // endpoint receive a 200. Removed entirely at the end of PR 2b.
-  template<class T>
-  void pair(std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response, std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
-    print_req<T>(request);
-
+  // Phase 2 token gate. Each authenticated handler calls check_token() at
+  // the top after print_req. On missing/invalid token, write_401 emits a
+  // 401 with a small XML body and the handler returns immediately. Gated:
+  // /applist, /launch, /resume, /cancel, /appasset. Ungated: /serverinfo
+  // (discovery — must work before any session exists). /pair removed.
+  void write_401(resp_https_t response, const std::string &message) {
     pt::ptree tree;
-    tree.put("root.paired", 1);
-    tree.put("root.<xmlattr>.status_code", 200);
+    tree.put("root.<xmlattr>.status_code", 401);
+    tree.put("root.<xmlattr>.status_message", message);
 
     std::ostringstream data;
     pt::write_xml(data, tree);
-    response->write(data.str());
+
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "application/xml");
+    response->write(SimpleWeb::StatusCode::client_error_unauthorized, data.str(), headers);
     response->close_connection_after_response = true;
+  }
+
+  bool check_token(resp_https_t response, req_https_t request) {
+    const auto args = request->parse_query_string();
+    const auto token_it = args.find("token");
+    if (token_it == std::end(args)) {
+      BOOST_LOG(debug) << "nvhttp: missing token on "sv << request->path;
+      write_401(response, "Missing token");
+      return false;
+    }
+    const auto claims = nvhttp::token::verify(token_it->second);
+    if (!claims) {
+      BOOST_LOG(debug) << "nvhttp: invalid token on "sv << request->path;
+      write_401(response, "Invalid token");
+      return false;
+    }
+    BOOST_LOG(debug) << "nvhttp: authenticated sid="sv << claims->sid << " path="sv << request->path;
+    return true;
   }
 
   template<class T>
@@ -359,6 +378,10 @@ namespace nvhttp {
   void applist(resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
 
+    if (!check_token(response, request)) {
+      return;
+    }
+
     pt::ptree tree;
 
     auto g = util::fail_guard([&]() {
@@ -386,6 +409,10 @@ namespace nvhttp {
 
   void launch(bool &host_audio, resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
+
+    if (!check_token(response, request)) {
+      return;
+    }
 
     pt::ptree tree;
     bool revert_display_configuration {false};
@@ -498,6 +525,10 @@ namespace nvhttp {
   void resume(bool &host_audio, resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
 
+    if (!check_token(response, request)) {
+      return;
+    }
+
     pt::ptree tree;
     auto g = util::fail_guard([&]() {
       std::ostringstream data;
@@ -589,6 +620,10 @@ namespace nvhttp {
   void cancel(resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
 
+    if (!check_token(response, request)) {
+      return;
+    }
+
     pt::ptree tree;
     auto g = util::fail_guard([&]() {
       std::ostringstream data;
@@ -613,6 +648,10 @@ namespace nvhttp {
 
   void appasset(resp_https_t response, req_https_t request) {
     print_req<SunshineHTTPS>(request);
+
+    if (!check_token(response, request)) {
+      return;
+    }
 
     auto args = request->parse_query_string();
     auto app_image = proc::proc.get_app_image((int) util::from_view(get_arg(args, "appid")));
@@ -659,7 +698,6 @@ namespace nvhttp {
 
     https_server.default_resource["GET"] = not_found<SunshineHTTPS>;
     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SunshineHTTPS>;
-    https_server.resource["^/pair$"]["GET"] = pair<SunshineHTTPS>;
     https_server.resource["^/applist$"]["GET"] = applist;
     https_server.resource["^/appasset$"]["GET"] = appasset;
     https_server.resource["^/launch$"]["GET"] = [&host_audio](auto resp, auto req) {
@@ -676,7 +714,6 @@ namespace nvhttp {
 
     http_server.default_resource["GET"] = not_found<SimpleWeb::HTTP>;
     http_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTP>;
-    http_server.resource["^/pair$"]["GET"] = pair<SimpleWeb::HTTP>;
 
     http_server.config.reuse_address = true;
     http_server.config.address = net::get_bind_address(address_family);

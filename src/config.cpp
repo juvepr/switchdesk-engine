@@ -968,7 +968,13 @@ namespace config {
     string_f(vars, "external_ip", nvhttp.external_ip);
 
     // Phase 2: control plane JWT verification
-    path_f(vars, "cp_pubkey", nvhttp.cp_pubkey);
+    //
+    // cp_pubkey uses string_f (NOT path_f). path_f auto-resolves an empty
+    // input to the appdata directory, which would defeat the empty-check +
+    // sibling-cp-pubkey.pem fallback in nvhttp::start(). For absolute
+    // paths (production case) the two helpers are equivalent; the
+    // difference only matters when the field is unset.
+    string_f(vars, "cp_pubkey", nvhttp.cp_pubkey);
     string_f(vars, "cp_issuer", nvhttp.cp_issuer);
     string_f(vars, "node_id", nvhttp.node_id);
     list_prep_cmd_f(vars, "global_prep_cmd", config::sunshine.prep_cmds);
