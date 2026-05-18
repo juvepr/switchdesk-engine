@@ -362,6 +362,11 @@ namespace config {
     platf::get_host_name(),  // sunshine_name,
     "sunshine_state.json"s,  // file_state
     {},  // external_ip
+
+    // Phase 2: control plane JWT verification
+    {},  // cp_pubkey -- empty default; nvhttp::start() derives a sibling cp-pubkey.pem next to cert if empty
+    "switchdesk-cp"s,  // cp_issuer
+    platf::get_host_name(),  // node_id -- defaults to hostname; override via config
   };
 
   input_t input {
@@ -961,6 +966,11 @@ namespace config {
     path_f(vars, "credentials_file", config::sunshine.credentials_file);
 
     string_f(vars, "external_ip", nvhttp.external_ip);
+
+    // Phase 2: control plane JWT verification
+    path_f(vars, "cp_pubkey", nvhttp.cp_pubkey);
+    string_f(vars, "cp_issuer", nvhttp.cp_issuer);
+    string_f(vars, "node_id", nvhttp.node_id);
     list_prep_cmd_f(vars, "global_prep_cmd", config::sunshine.prep_cmds);
 
     string_f(vars, "audio_sink", audio.sink);
