@@ -21,6 +21,7 @@
 
 // local includes
 #include "config.h"
+#include "crypto.h"
 #include "display_device.h"
 #include "file_handler.h"
 #include "globals.h"
