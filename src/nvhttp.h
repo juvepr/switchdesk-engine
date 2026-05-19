@@ -9,13 +9,7 @@
 #include <string>
 
 // lib includes
-#include <boost/property_tree/ptree.hpp>
-#include <nlohmann/json.hpp>
 #include <Simple-Web-Server/server_https.hpp>
-
-// local includes
-#include "crypto.h"
-#include "thread_safe.h"
 
 /**
  * @brief Contains all the functions and variables related to the nvhttp (GameStream) server.

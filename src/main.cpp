@@ -19,6 +19,7 @@
 #include "main.h"
 #include "nvhttp.h"
 #include "process.h"
+#include "thread_safe.h"
 #include "upnp.h"
 #include "video.h"
 
