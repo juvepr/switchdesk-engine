@@ -57,11 +57,6 @@ namespace confighttp {
   using req_https_t = std::shared_ptr<SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Request>;
   using https_handler_t = std::function<void(resp_https_t, req_https_t)>;
 
-  enum class op_e {
-    ADD,  ///< Add client
-    REMOVE  ///< Remove client
-  };
-
   // CSRF token management
   struct csrf_token_t {
     std::string token;
