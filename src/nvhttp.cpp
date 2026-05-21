@@ -246,14 +246,11 @@ namespace nvhttp {
     tree.put("root.<xmlattr>.status_code", 404);
 
     std::ostringstream data;
-
     pt::write_xml(data, tree);
-    response->write(data.str());
 
-    *response
-      << "HTTP/1.1 404 NOT FOUND\r\n"
-      << data.str();
-
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "application/xml");
+    response->write(SimpleWeb::StatusCode::client_error_not_found, data.str(), headers);
     response->close_connection_after_response = true;
   }
 
