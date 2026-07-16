@@ -92,7 +92,7 @@ namespace nvhttp::token {
    * @brief Canonical base64url encode (RFC 4648 §5, no padding).
    *
    * Host-auth step 3. Counterpart of the internal decoder; used for the
-   * x5t#S256 thumbprint so engine logs eyeball-match the CP journal.
+   * x5t#S256 thumbprint so it is comparable across components.
    */
   std::string base64url_encode(const std::uint8_t *data, std::size_t len);
 
@@ -100,9 +100,9 @@ namespace nvhttp::token {
    * @brief RFC 8705 x5t#S256 thumbprint: base64url-nopad SHA-256 over the
    *        certificate's DER encoding.
    *
-   * Host-auth step 3. Mirrors the CP's computation byte-for-byte
-   * (client_ca.rs: URL_SAFE_NO_PAD.encode(Sha256::digest(cert.der()))) --
-   * i2d_X509 re-emits the received wire DER for an unmodified cert.
+   * Host-auth step 3. Reproduces the control plane's RFC 8705 computation
+   * byte-for-byte: base64url-nopad(SHA-256(leaf DER)). i2d_X509 re-emits
+   * the received wire DER for an unmodified cert, so the two agree.
    * Returns an empty string on encoding failure.
    */
   std::string x5t_s256(X509 *cert);
