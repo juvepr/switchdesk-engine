@@ -289,6 +289,30 @@ namespace nvhttp::token {
       return std::nullopt;
     }
 
+    // Host-auth step 3: optional cnf (RFC 8705 §3.1), STRICT when present
+    // (the typ precedent): a signed token carrying a malformed cnf is an
+    // invalid token, not an ignorable unknown. The CP is the only minter
+    // and never mints malformed. Canonical form only -- exactly 43
+    // base64url chars, no padding, decoding to 32 bytes (SHA-256).
+    if (auto cnf_it = payload.find("cnf"); cnf_it != payload.end()) {
+      if (!cnf_it->is_object()) {
+        BOOST_LOG(debug) << "nvhttp::token: cnf present but not an object"sv;
+        return std::nullopt;
+      }
+      auto x5t_it = cnf_it->find("x5t#S256");
+      if (x5t_it == cnf_it->end() || !x5t_it->is_string()) {
+        BOOST_LOG(debug) << "nvhttp::token: cnf missing a string x5t#S256"sv;
+        return std::nullopt;
+      }
+      auto x5t = x5t_it->get<std::string>();
+      std::vector<uint8_t> x5t_bytes;
+      if (x5t.size() != 43 || !base64url_decode(x5t, x5t_bytes) || x5t_bytes.size() != 32) {
+        BOOST_LOG(debug) << "nvhttp::token: cnf x5t#S256 is not canonical base64url SHA-256"sv;
+        return std::nullopt;
+      }
+      out.cnf_x5t = std::move(x5t);
+    }
+
     // Claim validation. Each check fail-closes with a distinct debug
     // line for triage; the caller still sees a single "invalid" outcome.
     if (out.exp <= now) {
@@ -313,6 +337,44 @@ namespace nvhttp::token {
 
   std::optional<claims_t> verify(const std::string &token) {
     return verify(token, static_cast<int64_t>(std::time(nullptr)));
+  }
+
+  std::string base64url_encode(const std::uint8_t *data, std::size_t len) {
+    static constexpr char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    std::string out;
+    out.reserve((len * 4 + 2) / 3);
+    std::size_t i = 0;
+    for (; i + 3 <= len; i += 3) {
+      const uint32_t v = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+      out.push_back(alphabet[(v >> 18) & 0x3F]);
+      out.push_back(alphabet[(v >> 12) & 0x3F]);
+      out.push_back(alphabet[(v >> 6) & 0x3F]);
+      out.push_back(alphabet[v & 0x3F]);
+    }
+    if (i + 1 == len) {
+      const uint32_t v = data[i] << 16;
+      out.push_back(alphabet[(v >> 18) & 0x3F]);
+      out.push_back(alphabet[(v >> 12) & 0x3F]);
+    } else if (i + 2 == len) {
+      const uint32_t v = (data[i] << 16) | (data[i + 1] << 8);
+      out.push_back(alphabet[(v >> 18) & 0x3F]);
+      out.push_back(alphabet[(v >> 12) & 0x3F]);
+      out.push_back(alphabet[(v >> 6) & 0x3F]);
+    }
+    return out;
+  }
+
+  std::string x5t_s256(X509 *cert) {
+    unsigned char *der = nullptr;
+    const int der_len = i2d_X509(cert, &der);
+    if (der_len <= 0 || der == nullptr) {
+      return {};
+    }
+    const auto digest = crypto::hash(
+      std::string_view(reinterpret_cast<const char *>(der), static_cast<std::size_t>(der_len)));
+    OPENSSL_free(der);
+    return base64url_encode(digest.data(), digest.size());
   }
 
 }  // namespace nvhttp::token
