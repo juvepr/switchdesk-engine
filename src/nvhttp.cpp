@@ -6,10 +6,18 @@
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 
 // standard includes
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <format>
+#include <map>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
+
+// lib includes (host-auth step 3: explicit SSL_* client-cert API)
+#include <openssl/ssl.h>
 
 // lib includes
 #include <boost/asio/ssl/context.hpp>
@@ -46,6 +54,89 @@ namespace nvhttp {
   namespace fs = std::filesystem;
   namespace pt = boost::property_tree;
 
+  // Host-auth step 3: per-connection client-TLS handshake state, joined by
+  // the token gate at request time. SWS keeps Request::connection private,
+  // so the peer endpoint is the only key both sides can read. Written in
+  // accept() after a successful handshake when verification is armed; read
+  // in check_token(). A lookup MISS is a first-class verdict (NO-TLS-STATE),
+  // never conflated with "no cert presented".
+  namespace client_tls {
+    struct info_t {
+      bool cert_presented;
+      bool chain_ok;  ///< meaningful only when cert_presented
+      long verify_err;  ///< raw X509_V_ERR_* (X509_V_OK when chain_ok)
+      std::string x5t;  ///< base64url-nopad SHA-256 of the leaf DER; empty when no cert
+    };
+
+    // Bounded registry: the cap is a DoS bound, far above any plausible
+    // live-connection count (handlers close per response). Eviction takes
+    // the oldest entry by insertion sequence and logs at warning -- an
+    // evicted LIVE connection later verdicts NO-TLS-STATE, never a false
+    // "no cert".
+    constexpr std::size_t kCap = 256;
+    std::mutex mutex;
+    std::uint64_t seq_counter;  // guarded by mutex
+    std::map<boost::asio::ip::tcp::endpoint, std::pair<std::uint64_t, info_t>> map;  // guarded by mutex
+
+    void note_handshake(const boost::asio::ip::tcp::endpoint &peer, SSL *ssl) {
+      // Local is `st`, NOT `info`: BOOST_LOG(info) resolves `info` by
+      // ordinary lookup to the global severity logger (logging.h), so a
+      // local named `info` would shadow it and break compilation.
+      info_t st {};
+      crypto::x509_t leaf {SSL_get_peer_certificate(ssl)};
+      if (leaf) {
+        st.cert_presented = true;
+        // The context verify callback always returns 1 (the handshake must
+        // complete so a policy failure can answer 401), but OpenSSL still
+        // latches the REAL chain verdict here -- including
+        // X509_V_ERR_CERT_HAS_EXPIRED (the optional_no_ca pattern).
+        st.verify_err = SSL_get_verify_result(ssl);
+        st.chain_ok = (st.verify_err == X509_V_OK);
+        st.x5t = token::x5t_s256(leaf.get());
+      }
+      // Without a cert no verification ran -- print chain=-, never chain=ok.
+      BOOST_LOG(info) << "nvhttp: client-tls "sv << peer
+                      << " cert="sv << (st.cert_presented ? "yes"sv : "no"sv)
+                      << " chain="sv
+                      << (!st.cert_presented ? "-"s :
+                            st.chain_ok      ? "ok"s :
+                                               ("FAIL("s + std::to_string(st.verify_err) + ")"s))
+                      << " x5t="sv << (st.x5t.empty() ? "-"sv : std::string_view {st.x5t});
+      std::lock_guard lock {mutex};
+      if (map.size() >= kCap && map.find(peer) == map.end()) {
+        auto oldest = std::min_element(map.begin(), map.end(), [](const auto &a, const auto &b) {
+          return a.second.first < b.second.first;
+        });
+        // Debug, not warning: eviction is expected churn for ungated
+        // (serverinfo) connections whose entry is never taken; the gated
+        // path takes-on-read below, so this is not an error condition.
+        BOOST_LOG(debug) << "nvhttp: client-tls registry at cap; evicting "sv << oldest->first;
+        map.erase(oldest);
+      }
+      map[peer] = {++seq_counter, std::move(st)};
+    }
+
+    // Take-on-read: each connection serves exactly one request
+    // (close_connection_after_response), so the gated request consumes its
+    // own entry and the map holds only in-flight-plus-ungated state -- kCap
+    // becomes a genuine concurrency bound, not an unbounded high-water mark.
+    std::optional<info_t> take(const boost::asio::ip::tcp::endpoint &peer) {
+      // A default-constructed endpoint means the socket could not be read
+      // (peer already gone) -- that is a miss, not a key.
+      if (peer == boost::asio::ip::tcp::endpoint {}) {
+        return std::nullopt;
+      }
+      std::lock_guard lock {mutex};
+      auto it = map.find(peer);
+      if (it == map.end()) {
+        return std::nullopt;
+      }
+      info_t st = std::move(it->second.second);
+      map.erase(it);
+      return st;
+    }
+  }  // namespace client_tls
+
   class SunshineHTTPSServer: public SimpleWeb::ServerBase<SunshineHTTPS> {
   public:
     SunshineHTTPSServer(const std::string &certification_file, const std::string &private_key_file):
@@ -61,16 +152,53 @@ namespace nvhttp {
     std::function<int(SSL *)> verify;
     std::function<void(std::shared_ptr<Response>, std::shared_ptr<Request>)> on_verify_failed;
 
+    // Host-auth step 3: load the client-CA trust anchors and advertise the
+    // acceptable CA names in the CertificateRequest. Called once from
+    // nvhttp::start() (a free function -- hence public, like verify above),
+    // only when client_ca_bundle is configured; a false return is a fatal
+    // config failure at the caller.
+    bool arm_client_ca(const std::string &bundle_path) {
+      try {
+        context.load_verify_file(bundle_path);
+      } catch (const std::exception &e) {
+        BOOST_LOG(error) << "nvhttp: client-CA bundle load failed: "sv << e.what();
+        return false;
+      }
+      auto ca_list = SSL_load_client_CA_file(bundle_path.c_str());
+      if (!ca_list) {
+        BOOST_LOG(error) << "nvhttp: client-CA name list load failed: "sv << bundle_path;
+        return false;
+      }
+      SSL_CTX_set_client_CA_list(context.native_handle(), ca_list);  // takes ownership
+      return true;
+    }
+
   protected:
     boost::asio::ssl::context context;
 
     void after_bind() override {
       if (verify) {
-        context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert | boost::asio::ssl::verify_client_once);
+        // BOTH advisory and enforcing modes complete the handshake --
+        // gate-4 rejections are 401s, not TLS aborts ("To respond with an
+        // error message, a connection must be established"). Enforcement
+        // lives post-handshake in the verify hook and the token gate;
+        // fail_if_no_peer_cert is deliberately never set.
+        context.set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_client_once);
         context.set_verify_callback([](int verified, boost::asio::ssl::verify_context &ctx) {
-          // To respond with an error message, a connection must be established
+          // Always continue; OpenSSL latches the real chain verdict into
+          // the connection for SSL_get_verify_result.
           return 1;
         });
+        // SSL_VERIFY_PEER with an empty session-id context FATALs TLS<=1.2
+        // resumption (SSL_R_SESSION_ID_CONTEXT_UNINITIALIZED) instead of
+        // falling back to a full handshake; TLS 1.3 PSK resumption hides
+        // this on modern benches. Mirror the vendored SWS derivation
+        // (server_https.hpp after_bind).
+        auto session_id_context = std::to_string(acceptor->local_endpoint().port()) + ':';
+        session_id_context.append(config.address.rbegin(), config.address.rend());
+        SSL_CTX_set_session_id_context(context.native_handle(),
+                                       reinterpret_cast<const unsigned char *>(session_id_context.data()),
+                                       static_cast<unsigned int>(std::min<std::size_t>(session_id_context.size(), SSL_MAX_SSL_SESSION_ID_LENGTH)));
       }
     }
 
@@ -103,6 +231,17 @@ namespace nvhttp {
               return;
             }
             if (!ec) {
+              if (verify) {
+                // Host-auth step 3: record this connection's client-TLS
+                // state for the request-time cnf join. Endpoint read via
+                // the error_code overload; an unreadable/default endpoint
+                // is skipped (its requests verdict as NO-TLS-STATE).
+                boost::system::error_code ep_ec;
+                auto peer = session->connection->socket->lowest_layer().remote_endpoint(ep_ec);
+                if (!ep_ec && peer != boost::asio::ip::tcp::endpoint {}) {
+                  client_tls::note_handshake(peer, session->connection->socket->native_handle());
+                }
+              }
               if (verify && !verify(session->connection->socket->native_handle())) {
                 this->write(session, on_verify_failed);
               } else {
@@ -288,6 +427,42 @@ namespace nvhttp {
       return false;
     }
     BOOST_LOG(debug) << "nvhttp: authenticated sid="sv << claims->sid << " path="sv << request->path;
+
+    // Host-auth step 3: join the token's cnf with the connection's client-
+    // TLS state. Advisory (default): one info verdict line per gated
+    // request -- the engine leg of the x5t match chain (engine log == node
+    // leaf recompute == sessions.client_cert_x5t == CP journal).
+    // cnf_enforce (step 4): 401 on any verdict other than a clean MATCH;
+    // NO-TLS-STATE is fail-closed as its own class so registry loss is
+    // never misattributed to the client.
+    if (config::nvhttp.client_ca_bundle.empty()) {
+      // Disarmed engine; the CP mints cnf regardless (rollout/rollback
+      // state). Debug, not info: expected noise, not acceptance evidence.
+      BOOST_LOG(debug) << "nvhttp: client-tls sid="sv << claims->sid << " cnf=DISARMED"sv;
+      return true;
+    }
+    const auto tls = client_tls::take(request->remote_endpoint());
+    std::string verdict;
+    bool cnf_ok = false;
+    if (!tls) {
+      verdict = "NO-TLS-STATE";
+    } else if (!claims->cnf_x5t) {
+      verdict = "ABSENT";
+    } else if (!tls->cert_presented) {
+      verdict = "NO-CLIENT-CERT tok=" + *claims->cnf_x5t;
+    } else if (*claims->cnf_x5t == tls->x5t) {
+      // Belt: enforcing also requires the chain here, though the policy
+      // hook already 401'd bad chains before any request was read.
+      cnf_ok = tls->chain_ok;
+      verdict = "MATCH x5t=" + tls->x5t + (tls->chain_ok ? "" : " (chain FAILED)");
+    } else {
+      verdict = "MISMATCH tok=" + *claims->cnf_x5t + " presented=" + tls->x5t;
+    }
+    BOOST_LOG(info) << "nvhttp: client-tls sid="sv << claims->sid << " path="sv << request->path << " cnf="sv << verdict;
+    if (config::nvhttp.cnf_enforce && !cnf_ok) {
+      write_401(response, "Client certificate binding failed");
+      return false;
+    }
     return true;
   }
 
@@ -682,12 +857,62 @@ namespace nvhttp {
     }
     nvhttp::token::load_issuer_pubkey(cp_pubkey_path);
 
+    // Host-auth step 3: client-CA trust material. Set-but-broken is FATAL
+    // (a broken security config must never silently disable); empty is
+    // cleanly disarmed (pre-step-3 TLS behavior). Resolution mirrors
+    // path_f (appdata-relative) minus its empty-input trap -- the same
+    // reason client_ca_bundle parses via string_f.
+    std::string client_ca_path = config::nvhttp.client_ca_bundle;
+    if (!client_ca_path.empty()) {
+      fs::path resolved = client_ca_path;
+      if (resolved.is_relative()) {
+        resolved = platf::appdata() / resolved;
+      }
+      client_ca_path = resolved.string();
+      if (!fs::exists(resolved)) {
+        BOOST_LOG(fatal) << "nvhttp: client_ca_bundle set but missing: "sv << client_ca_path;
+        shutdown_event->raise(true);
+        return;
+      }
+    } else if (config::nvhttp.cnf_enforce) {
+      BOOST_LOG(fatal) << "nvhttp: cnf_enforce set without client_ca_bundle -- refusing to enforce without trust material"sv;
+      shutdown_event->raise(true);
+      return;
+    }
+
     // resume doesn't always get the parameter "localAudioPlayMode"
     // launch will store it in host_audio
     bool host_audio {};
 
     https_server_t https_server {config::nvhttp.cert, config::nvhttp.pkey};
     http_server_t http_server;
+
+    // Host-auth step 3: arm client-cert verification. Advisory by default;
+    // cnf_enforce flips exactly two policy returns (here and in the token
+    // gate) -- the step-4 config flip.
+    if (!client_ca_path.empty()) {
+      if (!https_server.arm_client_ca(client_ca_path)) {
+        BOOST_LOG(fatal) << "nvhttp: client-CA arming failed: "sv << client_ca_path;
+        shutdown_event->raise(true);
+        return;
+      }
+      https_server.verify = [](SSL *ssl) -> int {
+        if (!config::nvhttp.cnf_enforce) {
+          return 1;  // advisory: verdicts are logged (note_handshake), never enforced
+        }
+        crypto::x509_t leaf {SSL_get_peer_certificate(ssl)};
+        if (!leaf) {
+          return 0;  // step 4: no client cert -> 401 via on_verify_failed
+        }
+        return SSL_get_verify_result(ssl) == X509_V_OK ? 1 : 0;  // bad chain / expired -> 401
+      };
+      https_server.on_verify_failed = [](resp_https_t resp, req_https_t req) {
+        write_401(resp, "Client certificate required");
+      };
+      BOOST_LOG(info) << "nvhttp: client-cert verification armed ("sv
+                      << (config::nvhttp.cnf_enforce ? "ENFORCING"sv : "advisory"sv)
+                      << "), bundle "sv << client_ca_path;
+    }
 
     https_server.default_resource["GET"] = not_found<SunshineHTTPS>;
     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SunshineHTTPS>;

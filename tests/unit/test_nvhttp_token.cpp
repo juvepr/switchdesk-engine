@@ -22,6 +22,7 @@
 
 // local imports
 #include <src/config.h>
+#include <src/crypto.h>
 #include <src/nvhttp_token.h>
 
 namespace {
@@ -113,4 +114,81 @@ TEST_F(NvhttpTokenTest, MalformedJsonRejected) {
   // of the payload section fails. Exercises the post-signature
   // structural-validation path.
   EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-malformed-json.txt"), kFixedNow).has_value());
+}
+
+// ---- host-auth step 3: cnf (RFC 8705) -- strict when present ----
+
+TEST_F(NvhttpTokenTest, CnfValidParsed) {
+  const auto claims = nvhttp::token::verify(load_fixture("jwt-cnf-valid.txt"), kFixedNow);
+  ASSERT_TRUE(claims.has_value());
+  ASSERT_TRUE(claims->cnf_x5t.has_value());
+  EXPECT_EQ(claims->cnf_x5t->size(), 43u);
+}
+
+TEST_F(NvhttpTokenTest, CnfAbsentParsesAsNullopt) {
+  const auto claims = nvhttp::token::verify(load_fixture("jwt-valid.txt"), kFixedNow);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_FALSE(claims->cnf_x5t.has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfNotObjectRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-not-object.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfMissingMemberRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-missing-member.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfWrongTypeRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-wrong-type.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfBadLengthRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-bad-length.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfBadAlphabetRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-bad-alphabet.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, CnfPaddedRejected) {
+  EXPECT_FALSE(nvhttp::token::verify(load_fixture("jwt-cnf-padded.txt"), kFixedNow).has_value());
+}
+
+TEST_F(NvhttpTokenTest, X5tMatchesLeafFixture) {
+  // jwt-cnf-valid's x5t was computed by the bake script over
+  // client-leaf.pem's DER; the engine's own x5t_s256() must agree exactly
+  // (it mirrors the CP computation).
+  const std::string pem_path = std::string(SUNSHINE_SOURCE_DIR) +
+                               "/tests/unit/fixtures/client-leaf.pem";
+  std::ifstream in(pem_path);
+  ASSERT_TRUE(in) << pem_path;
+  std::stringstream ss;
+  ss << in.rdbuf();
+  auto leaf = crypto::x509(ss.str());
+  ASSERT_TRUE(leaf);
+  const auto claims = nvhttp::token::verify(load_fixture("jwt-cnf-valid.txt"), kFixedNow);
+  ASSERT_TRUE(claims.has_value());
+  ASSERT_TRUE(claims->cnf_x5t.has_value());
+  const auto computed = nvhttp::token::x5t_s256(leaf.get());
+  EXPECT_EQ(computed.size(), 43u);
+  EXPECT_EQ(computed, *claims->cnf_x5t);
+}
+
+TEST_F(NvhttpTokenTest, Base64urlEncodeVectors) {
+  // RFC 4648 §10 vectors, url-safe unpadded, plus a high-bits case that
+  // exercises the -/_ alphabet tail.
+  const auto enc = [](std::string_view s) {
+    return nvhttp::token::base64url_encode(
+      reinterpret_cast<const uint8_t *>(s.data()), s.size());
+  };
+  EXPECT_EQ(enc(""), "");
+  EXPECT_EQ(enc("f"), "Zg");
+  EXPECT_EQ(enc("fo"), "Zm8");
+  EXPECT_EQ(enc("foo"), "Zm9v");
+  EXPECT_EQ(enc("foob"), "Zm9vYg");
+  EXPECT_EQ(enc("fooba"), "Zm9vYmE");
+  EXPECT_EQ(enc("foobar"), "Zm9vYmFy");
+  const uint8_t hi[] = {0xfb, 0xef, 0xff};
+  EXPECT_EQ(nvhttp::token::base64url_encode(hi, sizeof(hi)), "--__");
 }

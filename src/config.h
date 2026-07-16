@@ -180,6 +180,11 @@ namespace config {
     std::string cp_pubkey;  ///< Path to control plane issuer pubkey (PEM-wrapped X.509)
     std::string cp_issuer;  ///< Expected JWT iss claim
     std::string node_id;    ///< Expected JWT aud claim
+
+    // Host-auth step 3: per-session client-cert verification (scope O6 in
+    // juvepr/switchdesk docs/host-auth-restoration-scope.md).
+    std::string client_ca_bundle;  ///< Path to the client-CA trust bundle PEM (client-int + root). Empty = client-cert verification disarmed (pre-step-3 TLS behavior).
+    bool cnf_enforce;  ///< false = advisory (log-only); true = step-4 enforcement (401 on no-cert / bad-chain / expired / cnf mismatch)
   };
 
   struct input_t {

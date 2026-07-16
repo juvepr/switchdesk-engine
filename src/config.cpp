@@ -367,6 +367,8 @@ namespace config {
     {},  // cp_pubkey -- empty default; nvhttp::start() derives a sibling cp-pubkey.pem next to cert if empty
     "switchdesk-cp"s,  // cp_issuer
     platf::get_host_name(),  // node_id -- defaults to hostname; override via config
+    {},  // client_ca_bundle -- empty default = client-cert verification disarmed
+    false,  // cnf_enforce -- advisory until host-auth step 4
   };
 
   input_t input {
@@ -977,6 +979,13 @@ namespace config {
     string_f(vars, "cp_pubkey", nvhttp.cp_pubkey);
     string_f(vars, "cp_issuer", nvhttp.cp_issuer);
     string_f(vars, "node_id", nvhttp.node_id);
+
+    // Host-auth step 3: same string_f rationale as cp_pubkey above -- an
+    // empty value must survive as "disarmed" (path_f would resolve it to
+    // the appdata dir). nvhttp::start() resolves a relative value against
+    // appdata explicitly.
+    string_f(vars, "client_ca_bundle", nvhttp.client_ca_bundle);
+    bool_f(vars, "cnf_enforce", nvhttp.cnf_enforce);
     list_prep_cmd_f(vars, "global_prep_cmd", config::sunshine.prep_cmds);
 
     string_f(vars, "audio_sink", audio.sink);
