@@ -95,7 +95,7 @@ namespace nvhttp {
         st.x5t = token::x5t_s256(leaf.get());
       }
       // Without a cert no verification ran -- print chain=-, never chain=ok.
-      BOOST_LOG(info) << "nvhttp: client-tls "sv << peer
+      BOOST_LOG(debug) << "nvhttp: client-tls "sv << peer
                       << " cert="sv << (st.cert_presented ? "yes"sv : "no"sv)
                       << " chain="sv
                       << (!st.cert_presented ? "-"s :
@@ -167,6 +167,14 @@ namespace nvhttp {
       auto ca_list = SSL_load_client_CA_file(bundle_path.c_str());
       if (!ca_list) {
         BOOST_LOG(error) << "nvhttp: client-CA name list load failed: "sv << bundle_path;
+        return false;
+      }
+      // A readable-but-zero-cert bundle yields a non-null EMPTY name
+      // stack (SSL_load_client_CA_file does not fail on it) -- reject so a
+      // hand-truncated bundle fatals rather than arming an empty trust set.
+      if (sk_X509_NAME_num(ca_list) <= 0) {
+        BOOST_LOG(error) << "nvhttp: client-CA bundle has zero certificates: "sv << bundle_path;
+        sk_X509_NAME_pop_free(ca_list, X509_NAME_free);
         return false;
       }
       SSL_CTX_set_client_CA_list(context.native_handle(), ca_list);  // takes ownership
@@ -430,8 +438,8 @@ namespace nvhttp {
 
     // Host-auth step 3: join the token's cnf with the connection's client-
     // TLS state. Advisory (default): one info verdict line per gated
-    // request -- the engine leg of the x5t match chain (engine log == node
-    // leaf recompute == sessions.client_cert_x5t == CP journal).
+    // request -- the engine leg of the cross-component x5t match chain
+    // (the presented leaf's thumbprint == the token's cnf claim).
     // cnf_enforce (step 4): 401 on any verdict other than a clean MATCH;
     // NO-TLS-STATE is fail-closed as its own class so registry loss is
     // never misattributed to the client.
@@ -458,7 +466,16 @@ namespace nvhttp {
     } else {
       verdict = "MISMATCH tok=" + *claims->cnf_x5t + " presented=" + tls->x5t;
     }
-    BOOST_LOG(info) << "nvhttp: client-tls sid="sv << claims->sid << " path="sv << request->path << " cnf="sv << verdict;
+    // Cert/chain evidence rides the post-auth verdict line (info); the
+    // handshake line above is debug so an unauthenticated peer cannot
+    // flood the info log by connecting.
+    std::string chain_field;
+    if (tls && tls->cert_presented) {
+      chain_field = tls->chain_ok ? " chain=ok"s : (" chain=FAIL("s + std::to_string(tls->verify_err) + ")"s);
+    } else if (tls) {
+      chain_field = " cert=no"s;
+    }
+    BOOST_LOG(info) << "nvhttp: client-tls sid="sv << claims->sid << " path="sv << request->path << chain_field << " cnf="sv << verdict;
     if (config::nvhttp.cnf_enforce && !cnf_ok) {
       write_401(response, "Client certificate binding failed");
       return false;
