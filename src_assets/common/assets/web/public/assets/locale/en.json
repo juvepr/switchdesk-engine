@@ -105,6 +105,8 @@
     "address_family_ipv4": "IPv4 only",
     "always_send_scancodes": "Always Send Scancodes",
     "always_send_scancodes_desc": "Sending scancodes enhances compatibility with games and apps but may result in incorrect keyboard input from certain clients that aren't using a US English keyboard layout. Enable if keyboard input is not working at all in certain applications. Disable if keys on the client are generating the wrong input on the host.",
+    "input_driver": "Input Injection Driver",
+    "input_driver_desc": "Selects how synthetic keyboard and mouse input is delivered to the host. 'sendinput' uses the standard Windows API. 'interception' uses the Interception kernel driver, which injects below the user-mode input stack. 'auto' uses Interception when its driver is installed and falls back to SendInput otherwise. Absolute mouse positioning and unicode text always use SendInput. Requires the Interception driver to be installed separately; Windows only.",
     "amd_coder": "AMF Coder (H264)",
     "amd_coder_desc": "Allows you to select the entropy encoding to prioritize quality or encoding speed. H.264 only.",
     "amd_enforce_hrd": "AMF Hypothetical Reference Decoder (HRD) Enforcement",

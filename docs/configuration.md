@@ -591,6 +591,48 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
+### input_driver
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Selects how synthetic keyboard and mouse input is delivered to the host.
+            <br>
+            <br>
+            <code>sendinput</code> uses the standard Windows <code>SendInput</code> API.
+            <br>
+            <br>
+            <code>interception</code> uses the Interception kernel driver, which injects below the
+            user-mode input stack and is therefore not scoped to a single desktop.
+            <br>
+            <br>
+            <code>auto</code> uses Interception when its driver is installed, and falls back to
+            <code>SendInput</code> otherwise.
+            <br>
+            <br>
+            Absolute mouse positioning and unicode text input always use <code>SendInput</code>,
+            regardless of this setting.
+            @caution{Applies to Windows only. The <code>interception</code> and <code>auto</code>
+            driver paths require the Interception kernel driver to be installed separately, which
+            needs administrator rights and a reboot. Interception is dual-licensed and commercial
+            use requires a license from its author.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            auto
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            input_driver = sendinput
+            @endcode</td>
+    </tr>
+</table>
+
 ### key_rightalt_to_key_win
 
 <table>
