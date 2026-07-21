@@ -273,6 +273,21 @@ namespace config {
     }
   }  // namespace dd
 
+  namespace inp {
+    input_driver_e driver_from_view(const std::string_view value) {
+#define _CONVERT_2_ARG_(str, val) \
+  if (value == #str##sv) \
+  return input_driver_e::val
+#define _CONVERT_(x) _CONVERT_2_ARG_(x, x)
+      _CONVERT_2_ARG_(auto, AUTO);
+      _CONVERT_2_ARG_(sendinput, SENDINPUT);
+      _CONVERT_2_ARG_(interception, INTERCEPTION);
+#undef _CONVERT_
+#undef _CONVERT_2_ARG_
+      return input_driver_e::AUTO;  // Default to this if value is invalid
+    }
+  }  // namespace inp
+
   video_t video {
     28,  // qp
 
@@ -384,6 +399,7 @@ namespace config {
     true,  // mouse enabled
     true,  // always send scancodes
     true,  // high resolution scrolling
+    input_driver_e::AUTO,  // driver -- Interception when installed, else SendInput
   };
 
   sunshine_t sunshine {
@@ -1071,6 +1087,8 @@ namespace config {
     bool_f(vars, "always_send_scancodes", input.always_send_scancodes);
 
     bool_f(vars, "high_resolution_scrolling", input.high_resolution_scrolling);
+
+    generic_f(vars, "input_driver", input.driver, inp::driver_from_view);
 
     int port = sunshine.port;
     int_between_f(vars, "port"s, port, {1024 + nvhttp::PORT_HTTPS, 65535 - rtsp_stream::RTSP_SETUP_PORT});

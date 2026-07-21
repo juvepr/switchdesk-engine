@@ -187,6 +187,17 @@ namespace config {
     bool cnf_enforce;  ///< false = advisory (log-only); true = step-4 enforcement (401 on no-cert / bad-chain / expired / cnf mismatch)
   };
 
+  /**
+   * @brief Selects the mechanism used to inject synthetic input on the host.
+   *
+   * Only meaningful on Windows; other platforms ignore it.
+   */
+  enum class input_driver_e : int {
+    AUTO = 0,  ///< Use the Interception driver when present, else fall back to SendInput
+    SENDINPUT,  ///< Always use the Win32 SendInput API
+    INTERCEPTION,  ///< Require the Interception driver; log an error and degrade if absent
+  };
+
   struct input_t {
     std::unordered_map<int, int> keybindings;
 
@@ -199,6 +210,11 @@ namespace config {
     bool always_send_scancodes;
 
     bool high_resolution_scrolling;
+
+    /// Injection backend. Absolute mouse positioning and unicode text always
+    /// use SendInput regardless of this setting -- the Interception wrapper
+    /// implements neither (see third-party/interception-input contract 9).
+    input_driver_e driver;
   };
 
   namespace flag {

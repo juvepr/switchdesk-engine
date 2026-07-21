@@ -1,0 +1,31 @@
+# CMake build output
+build/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Ninja generated files
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Compiled artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+
+# Editor files
+.vscode/
+.idea/
+*.user
+
+# OS files
+.DS_Store
+Thumbs.db

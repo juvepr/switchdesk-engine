@@ -29,6 +29,12 @@ add_definitions(-DMINIUPNP_STATICLIB)
 # extra tools/binaries for audio/display devices
 add_subdirectory(tools)  # todo - this is temporary, only tools for Windows are needed, for now
 
+# interception-input: driver-level input backend (see third-party/interception-input/VENDORING.md).
+# Library target only -- the upstream examples and CTest registration stay out of our build graph.
+set(INTERCEPTION_INPUT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(INTERCEPTION_INPUT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/interception-input" EXCLUDE_FROM_ALL)
+
 # nvidia
 include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/third-party/nvapi")
 file(GLOB NVPREFS_FILES CONFIGURE_DEPENDS
@@ -70,6 +76,7 @@ set(OPENSSL_LIBRARIES
 
 list(PREPEND PLATFORM_LIBRARIES
         ${CURL_STATIC_LIBRARIES}
+        interception_input
         avrt
         d3d11
         D3DCompiler
