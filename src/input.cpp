@@ -125,7 +125,13 @@ namespace input {
 
     switch (keyCode) {
       case 0x4E /* VKEY_N */:
-        display_cursor = !display_cursor;
+        // When cursor capture is disabled in the config, the toggle is a no-op
+        // so client input cannot re-enable the captured cursor.
+        if (config::video.capture_cursor) {
+          display_cursor = !display_cursor;
+        } else {
+          BOOST_LOG(debug) << "Cursor toggle shortcut ignored: cursor capture is disabled"sv;
+        }
         return 1;
     }
 
