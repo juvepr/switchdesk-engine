@@ -120,6 +120,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  // Initialize the cursor state from config before any capture begins;
+  // when cursor capture is disabled, streams start with the cursor hidden.
+  display_cursor = config::video.capture_cursor;
+
   auto log_deinit_guard = logging::init(config::sunshine.min_log_level, config::sunshine.log_file);
   if (!log_deinit_guard) {
     BOOST_LOG(error) << "Logging failed to initialize"sv;
